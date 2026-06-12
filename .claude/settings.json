@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(vendor/bin/sail artisan migrate:fresh*)",
+      "Bash(vendor/bin/sail artisan migrate:refresh*)",
+      "Bash(vendor/bin/sail artisan migrate:rollback*)",
+      "Bash(vendor/bin/sail artisan db:wipe*)",
+      "Bash(vendor/bin/sail artisan db:seed --force*)"
+    ]
+  }
+}

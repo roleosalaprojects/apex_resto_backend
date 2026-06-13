@@ -475,6 +475,23 @@ Route::middleware('auth')->prefix('/admin')->group(function () {
         Route::get('generate-code', [VoucherController::class, 'generateCode'])->name('vouchers.generate-code');
     });
 
+    // Restaurant module (tables, kitchen stations, reservations)
+    Route::prefix('restaurant-tables')->group(function () {
+        Route::get('/table', [\App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class, 'table'])->name('restaurant-tables.table');
+        Route::get('/select', [\App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class, 'select'])->name('restaurant-tables.select');
+    });
+    Route::prefix('kitchen-stations')->group(function () {
+        Route::get('/table', [\App\Http\Controllers\Admin\Restaurant\KitchenStationController::class, 'table'])->name('kitchen-stations.table');
+        Route::get('/select', [\App\Http\Controllers\Admin\Restaurant\KitchenStationController::class, 'select'])->name('kitchen-stations.select');
+    });
+    Route::prefix('reservations')->group(function () {
+        Route::get('/table', [\App\Http\Controllers\Admin\Restaurant\ReservationController::class, 'table'])->name('reservations.table');
+        Route::get('/calendar-events', [\App\Http\Controllers\Admin\Restaurant\ReservationController::class, 'calendarEvents'])->name('reservations.calendar-events');
+    });
+    Route::resource('restaurant-tables', \App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class)->except(['show']);
+    Route::resource('kitchen-stations', \App\Http\Controllers\Admin\Restaurant\KitchenStationController::class)->except(['show']);
+    Route::resource('reservations', \App\Http\Controllers\Admin\Restaurant\ReservationController::class)->except(['show']);
+
     // Route Resources
     Route::resource('items', ItemController::class);
     Route::resource('units', UnitController::class);

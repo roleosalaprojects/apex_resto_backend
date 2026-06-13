@@ -102,6 +102,11 @@ class Role extends Model
         'crdt_pymnt',
         'unit_lock',
         'unit_lock_approve',
+        'rstrnt',
+        'rstrnt_read',
+        'rstrnt_create',
+        'rstrnt_update',
+        'rstrnt_delete',
     ];
 
     public function users(): HasMany
@@ -149,6 +154,7 @@ class Role extends Model
             'crdt_pymnt' => true,
             'unit_lock' => true,
             'unit_lock_approve' => true,
+            'rstrnt' => true, 'rstrnt_read' => true, 'rstrnt_create' => true, 'rstrnt_update' => true, 'rstrnt_delete' => true,
         ];
     }
 }

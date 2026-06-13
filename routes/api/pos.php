@@ -94,6 +94,36 @@ Route::name('api.')->prefix('v1')->group(function () {
             Route::post('/refund/{sale}', [\App\Http\Controllers\API\v1\pos\SaleController::class, 'refundReceipt']);
         });
 
+        // Restaurant Orders (waiter terminal)
+        Route::prefix('restaurant-orders')->group(function () {
+            Route::get('/', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'store']);
+            Route::get('/{order}', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'show']);
+            Route::post('/{order}/rounds', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'rounds']);
+            Route::post('/{order}/transfer-table', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'transferTable']);
+            Route::post('/{order}/settle', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'settle']);
+            Route::post('/{order}/cancel', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'cancel']);
+            Route::post('/{order}/lines/{line}/void', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'voidLine']);
+        });
+
+        // Kitchen Display System (polling)
+        Route::prefix('kds')->group(function () {
+            Route::get('/stations', [\App\Http\Controllers\API\v1\pos\KdsController::class, 'stations']);
+            Route::get('/stations/{station}/queue', [\App\Http\Controllers\API\v1\pos\KdsController::class, 'queue']);
+            Route::post('/lines/{line}/bump', [\App\Http\Controllers\API\v1\pos\KdsController::class, 'bumpLine']);
+            Route::post('/orders/{order}/bump', [\App\Http\Controllers\API\v1\pos\KdsController::class, 'bumpOrder']);
+        });
+
+        // Restaurant Tables
+        Route::get('/tables', [\App\Http\Controllers\API\v1\pos\TableController::class, 'index']);
+
+        // Reservations
+        Route::prefix('reservations')->group(function () {
+            Route::get('/', [\App\Http\Controllers\API\v1\pos\ReservationController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\API\v1\pos\ReservationController::class, 'store']);
+            Route::post('/{reservation}/status', [\App\Http\Controllers\API\v1\pos\ReservationController::class, 'updateStatus']);
+        });
+
         // Customers
         Route::prefix('customers')->group(function () {
             Route::get('/search', [\App\Http\Controllers\API\v1\pos\CustomerController::class, 'searchCustomers']);

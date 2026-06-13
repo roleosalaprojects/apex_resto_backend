@@ -15,6 +15,24 @@ class Order extends Model
 {
     use HasBatch, HasFactory, SoftDeletes;
 
+    public const STATUS_PENDING = 0;
+
+    public const STATUS_REFERENCED = 1;
+
+    public const STATUS_PREPARING = 2;
+
+    public const STATUS_FOR_PICKUP = 3;
+
+    public const STATUS_COMPLETED = 4;
+
+    public const STATUS_CANCELLED = 5;
+
+    public const TYPE_DINE_IN = 0;
+
+    public const TYPE_TAKE_OUT = 1;
+
+    public const TYPE_DELIVERY = 2;
+
     protected $fillable = [
         'reference',
         'qty',
@@ -34,7 +52,35 @@ class Order extends Model
         'cancelled_at',
         'picked_up_at',
         'sales_id', // reference Sales Invoice if necessary once order is completed.
+        // Restaurant ordering
+        'order_type', // 0 dine-in, 1 take-out, 2 delivery
+        'table_id',
+        'pax',
+        'sc_count',
+        'pwd_count',
+        'waiter_id',
+        'guest_name',
+        'store_id',
+        'delivery_address',
+        'delivery_contact',
+        'delivery_status',
+        'notes',
     ];
+
+    public function table(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Restaurant\RestaurantTable::class, 'table_id');
+    }
+
+    public function waiter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'waiter_id', 'id');
+    }
+
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class, 'sales_id', 'id');
+    }
 
     public function pos(): BelongsTo
     {

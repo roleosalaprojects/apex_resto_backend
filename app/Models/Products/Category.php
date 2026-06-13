@@ -14,7 +14,7 @@ class Category extends Model
 
     protected $fillable = [
         'name', 'description', 'image', 'icon', 'status', 'user_id',
-        'featured', 'featured_order',
+        'featured', 'featured_order', 'kitchen_station_id',
     ];
 
     /**

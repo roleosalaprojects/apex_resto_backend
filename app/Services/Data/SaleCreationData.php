@@ -4,6 +4,8 @@ namespace App\Services\Data;
 
 use App\Models\CustomerRelations\Customer;
 use App\Models\Ecommerce\EcommerceOrder;
+use App\Models\Pos\Order;
+use App\Models\Pos\OrderLine;
 use App\Models\Pos\Sale;
 use App\Models\Settings\Pos;
 use App\Models\Settings\Store;
@@ -295,6 +297,160 @@ final readonly class SaleCreationData
             'acquired_points' => $earnedPoints,
             'points_used' => 0,
             'ecommerce_order_id' => $order->id,
+            'voucher_id' => null,
+            'voucher_code' => null,
+            'voucher_discount' => 0,
+        ];
+
+        return new self(
+            saleAttributes: $saleAttributes,
+            saleLineRows: $saleLineRows,
+            customer: $customer,
+            earnedPoints: (float) $earnedPoints,
+            pointsUsed: 0.0,
+        );
+    }
+
+    /**
+     * Build from a restaurant Order being settled at the cashier. Mirrors
+     * fromPosRequest's counter/SON conventions so settled dine-in sales
+     * share the official SI series. Only non-voided lines settle.
+     *
+     * VAT split is kept simple here (vatable lines → vatable+vat, others →
+     * vat_exempt); BIR Annex F group-discount/VAT refinement lands in the
+     * next phase via DiscountAllocationService.
+     *
+     * @param  array<string, mixed>  $payment  payment_type/cash/change/reference/bank fields
+     */
+    public static function fromRestaurantOrder(
+        Order $order,
+        Pos $pos,
+        int $counter,
+        int|string $sonType,
+        array $payment,
+    ): self {
+        $now = Carbon::now();
+        $order->loadMissing('lines.item:id,cost,creditable_to_points,vatable');
+
+        $saleLineRows = [];
+        $total = 0;
+        $totalProfit = 0;
+        $vatableTotal = 0;
+        $vatTotal = 0;
+        $exemptTotal = 0;
+        $creditableTotal = 0;
+
+        $settleLines = $order->lines->reject(
+            fn (OrderLine $line) => (int) $line->line_status === OrderLine::LINE_VOIDED
+        );
+
+        foreach ($settleLines as $line) {
+            $qty = (float) $line->qty;
+            $price = (float) $line->price;
+            $cost = (float) $line->cost;
+            $unitQty = (float) ($line->unit_qty ?: 1);
+            $discount = (float) ($line->discount ?? 0);
+            $subTotal = $qty * ($price - $discount);
+            $total += $subTotal;
+            $lineProfit = $qty * ($price - $cost);
+            $totalProfit += $lineProfit;
+
+            $isVatable = (int) ($line->item?->vatable ?? 0) === 1;
+            $lineVat = $isVatable ? round($subTotal * 12 / 112, 2) : 0;
+            $lineVatable = $isVatable ? round($subTotal - $lineVat, 2) : 0;
+            $lineExempt = $isVatable ? 0 : $subTotal;
+            $vatableTotal += $lineVatable;
+            $vatTotal += $lineVat;
+            $exemptTotal += $lineExempt;
+
+            if ((int) ($line->item?->creditable_to_points ?? 0) === 1) {
+                $creditableTotal += $subTotal;
+            }
+
+            $saleLineRows[] = [
+                'qty' => $qty,
+                'unit' => $line->unit_name ?? '',
+                'discount' => $discount,
+                'price' => $price,
+                'sub_total' => $subTotal,
+                'vatable' => $lineVatable,
+                'vat' => $lineVat,
+                'exempt' => $lineExempt,
+                'zero_rated' => 0,
+                'cost' => $cost,
+                'refundable' => $qty,
+                'refunded' => 0,
+                'item_id' => $line->item_id,
+                'unit_id' => $line->unit_id,
+                'unit_qty' => $unitQty,
+                'discount_id' => null,
+                'discount_by' => null,
+                'vat_special_discounts' => 0,
+                'sc_discount' => 0,
+                'pwd_discount' => 0,
+                'sp_discount' => 0,
+                'naac_discount' => 0,
+                'profit' => $lineProfit,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        $customer = Customer::find($payment['customer_id'] ?? null);
+        $earnedPoints = ($customer && $creditableTotal > 0)
+            ? $creditableTotal * (float) $customer->points
+            : 0;
+
+        $cash = (float) ($payment['cash'] ?? $total);
+
+        $saleAttributes = [
+            'counter' => $counter,
+            'son' => $sonType.'-'.$counter.'-'.$pos->id,
+            'payment_type' => (int) ($payment['payment_type'] ?? Sale::PAYMENT_CASH),
+            'reference_number' => $payment['reference_number'] ?? null,
+            'bank_amount' => $payment['bank_amount'] ?? null,
+            'bank_id' => $payment['bank_id'] ?? null,
+            'total' => $total,
+            'cash' => $cash,
+            'change' => max(0, $cash - $total),
+            'header' => $pos->store->header ?? null,
+            'footer' => $pos->store->footer ?? null,
+            'type' => false,
+            'order_type' => (int) ($order->order_type ?? Order::TYPE_DINE_IN),
+            'table_id' => $order->table_id,
+            'pax' => $order->pax,
+            'sc_count' => $order->sc_count,
+            'pwd_count' => $order->pwd_count,
+            'sales_by' => Auth::guard('api')->id() ?? $order->waiter_id ?? $order->user_id,
+            'pos_id' => $pos->id,
+            'store_id' => $pos->store_id,
+            'user_id' => $order->user_id,
+            'created_at' => $now,
+            'updated_at' => $now,
+            'profit' => $totalProfit,
+            'vatable' => round($vatableTotal, 2),
+            'vat' => round($vatTotal, 2),
+            'vat_exempt' => round($exemptTotal, 2),
+            'zero_rated' => 0,
+            'non_vat' => 0,
+            'discount' => 0,
+            'cancelled' => false,
+            'approved_by' => null,
+            'sale_id' => 0,
+            'sale_type' => false,
+            'sc_discount' => 0,
+            'pwd_discount' => 0,
+            'sp_discount' => 0,
+            'naac_discount' => 0,
+            'vat_special_discounts' => 0,
+            'special_discount_type' => 0,
+            'special_discount_name' => null,
+            'special_discount_id' => null,
+            'special_discount_tin' => null,
+            'customer_id' => $payment['customer_id'] ?? null,
+            'acquired_points' => $earnedPoints,
+            'points_used' => 0,
+            'ecommerce_order_id' => null,
             'voucher_id' => null,
             'voucher_code' => null,
             'voucher_discount' => 0,

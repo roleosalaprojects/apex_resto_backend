@@ -61,6 +61,7 @@ class Item extends Model
         'is_composite',
         'cost_override',
         'uom_label',
+        'kitchen_station_id',
     ];
 
     /**

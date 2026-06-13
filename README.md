@@ -1,6 +1,6 @@
-# Apex Backend
+# Apex Resto Backend
 
-Laravel 12 backend for the Apex POS + Ecommerce platform (Quick Baskets / leteres.com).
+Laravel 12 backend for the Apex restaurant POS platform — composite items (recipes), waiter ordering → kitchen display → cashier settlement, reservations, dine-in/take-out/delivery, and BIR RMO 24-2023 (Annex F) compliance. Forked from apex_backend with a fresh history.
 
 - **PHP**: 8.4
 - **Database**: MySQL 8

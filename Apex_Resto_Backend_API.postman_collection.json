@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Apex Backend API",
+    "name": "Apex Resto Backend API",
     "description": "Complete API collection for Apex POS + Ecommerce Backend.\n\n## Authentication\nUses Laravel Passport (OAuth2 Bearer tokens).\n\n## Setup\n1. Set `base_url` variable (e.g. `http://localhost`)\n2. Call a Login endpoint \u2014 the token is auto-saved to `api_token`\n3. All protected endpoints use the saved token automatically\n\n## API Groups\n- **POS API** \u2014 Point of Sale terminal operations\n- **Mobile API** \u2014 Dashboard mobile app (Flutter)\n- **Customer API** \u2014 E-commerce customer-facing\n- **Desktop API** \u2014 Price checker / attendance kiosk\n- **Analytics** \u2014 Business intelligence endpoints\n- **Reports** \u2014 Scheduled report management",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },

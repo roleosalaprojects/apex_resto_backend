@@ -88,6 +88,9 @@ class AppServiceProvider extends ServiceProvider
         ColorPalette::observe(ColorPaletteObserver::class);
         BrandingSetting::observe(BrandingSettingObserver::class);
 
+        // Cascades ingredient cost changes up the composite recipe graph.
+        \App\Models\Products\Item::observe(\App\Observers\ItemCostObserver::class);
+
         // Every order status mutation creates one EcommerceOrderStatusChange
         // row; the observer dispatches SendOrderUpdateSmsJob keyed off that
         // row's id, so retries/double-fires can't double-send.

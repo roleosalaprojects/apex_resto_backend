@@ -4,6 +4,7 @@ namespace App\Jobs\API\v1\Sale;
 
 use App\Models\Pos\Sale;
 use App\Models\Pos\SaleLine;
+use App\Models\Products\Item;
 use App\Models\Products\ItemStore;
 use App\Services\FcmService;
 use Illuminate\Bus\Queueable;
@@ -35,42 +36,69 @@ class UpdateItemStocksJob implements ShouldQueue
         $storeId = $this->sale->store_id;
         // Find all products in item_stores. This is where the stocks are located.
         foreach ($lines as $line) {
-            // Find the first item in sale_line
-            $itemStore = ItemStore::where('item_id', $line->item_id)
-                ->where('store_id', $storeId)
-                ->first();
-            $oldStock = $itemStore->stock;
-            \Log::debug('item_store_id:'.$itemStore->id.' old stock:'.$oldStock);
-            /*
-             * Update the current stock. Since this is items taken out of the establishment we need to deduct.
-             * We also need to consider the Refund.
-             * if type = false (considered as sold)
-             * if type = true (considered as return)
-             * */
-            $newStock = $itemStore->stock;
-            if ($this->sale->type == false) {
-                // Sale
-                $newStock = $itemStore->stock - ($line->qty * $line->unit_qty);
-            } else {
-                // Return
-                $newStock = $itemStore->stock + ($line->qty * $line->unit_qty);
-            }
-            $itemStore->update(['stock' => $newStock]);
-            \Log::info('Stocks successfully updated! from '.$oldStock.' to '.$newStock.' son: '.$this->sale->son.PHP_EOL);
+            $item = Item::with('components')->find($line->item_id);
 
-            // Notify if stock dropped to low/critical/out-of-stock
-            if ($this->sale->type == false && $newStock <= 10 && $oldStock > 10) {
-                try {
-                    $itemName = $line->item->name ?? "Item #{$line->item_id}";
-                    $level = $newStock <= 0 ? 'OUT OF STOCK' : ($newStock <= 5 ? 'Critical' : 'Low');
-                    (new FcmService)->sendToAll(
-                        "{$level} Stock Alert",
-                        "{$itemName} — {$newStock} remaining",
-                        ['type' => 'low_stock', 'id' => (string) $line->item_id]
-                    );
-                } catch (\Exception $e) {
-                    \Log::warning('FCM notification failed for low stock: '.$e->getMessage());
+            // Composite (made-to-order) items carry no stock of their own:
+            // explode the recipe and move each component's stock instead.
+            if ($item && $item->is_composite && $item->components->isNotEmpty()) {
+                foreach ($item->components as $component) {
+                    $componentQty = (float) $component->qty * $line->qty * $line->unit_qty;
+                    $this->adjustStock((int) $component->component_item_id, $storeId, $componentQty);
                 }
+
+                continue;
+            }
+
+            $this->adjustStock((int) $line->item_id, $storeId, $line->qty * $line->unit_qty);
+        }
+    }
+
+    /**
+     * Deduct (sale) or restore (refund) $qty from the item's stock at the
+     * sale's store, firing the low-stock FCM alert on threshold crossing.
+     */
+    private function adjustStock(int $itemId, ?int $storeId, float $qty): void
+    {
+        $itemStore = ItemStore::where('item_id', $itemId)
+            ->where('store_id', $storeId)
+            ->first();
+
+        if (! $itemStore) {
+            \Log::warning('No item_store row for item '.$itemId.' at store '.$storeId.'; skipping stock update. son: '.$this->sale->son);
+
+            return;
+        }
+
+        $oldStock = $itemStore->stock;
+        \Log::debug('item_store_id:'.$itemStore->id.' old stock:'.$oldStock);
+        /*
+         * Update the current stock. Since this is items taken out of the establishment we need to deduct.
+         * We also need to consider the Refund.
+         * if type = false (considered as sold)
+         * if type = true (considered as return)
+         * */
+        if ($this->sale->type == false) {
+            // Sale
+            $newStock = $itemStore->stock - $qty;
+        } else {
+            // Return
+            $newStock = $itemStore->stock + $qty;
+        }
+        $itemStore->update(['stock' => $newStock]);
+        \Log::info('Stocks successfully updated! from '.$oldStock.' to '.$newStock.' son: '.$this->sale->son.PHP_EOL);
+
+        // Notify if stock dropped to low/critical/out-of-stock
+        if ($this->sale->type == false && $newStock <= 10 && $oldStock > 10) {
+            try {
+                $itemName = Item::find($itemId)->name ?? "Item #{$itemId}";
+                $level = $newStock <= 0 ? 'OUT OF STOCK' : ($newStock <= 5 ? 'Critical' : 'Low');
+                (new FcmService)->sendToAll(
+                    "{$level} Stock Alert",
+                    "{$itemName} — {$newStock} remaining",
+                    ['type' => 'low_stock', 'id' => (string) $itemId]
+                );
+            } catch (\Exception $e) {
+                \Log::warning('FCM notification failed for low stock: '.$e->getMessage());
             }
         }
     }

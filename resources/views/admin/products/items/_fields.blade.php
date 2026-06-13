@@ -393,6 +393,96 @@
                     </div>
                 </div>
                 {{-- end::Uom --}}
+                {{-- begin::Recipe (composite item) --}}
+                <div class="card card-flush py-4 mb-10">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <h2>Recipe / Components</h2>
+                        </div>
+                        <div class="card-toolbar">
+                            <span class="text-muted fs-7">Composite items deduct component stock when sold.</span>
+                        </div>
+                    </div>
+                    <div class="card-body pt-4">
+                        <div class="row mb-5">
+                            <div class="col-md-4">
+                                <label for="uom_label" class="form-label">Stock Unit Label</label>
+                                <input type="text" class="form-control" name="uom_label" id="uom_label"
+                                       maxlength="10" placeholder="g / ml / pc"
+                                       value="{{ old('uom_label', $item->uom_label) }}">
+                                <div class="text-muted fs-7">Fine unit this item is stocked in (for ingredients).</div>
+                            </div>
+                            <div class="col-md-8 d-flex align-items-center">
+                                <div class="form-check mt-5">
+                                    <input type="checkbox" class="form-check-input" name="cost_override" id="cost_override"
+                                            {{ old('cost_override', $item->cost_override) ? 'checked' : '' }}>
+                                    <label for="cost_override" class="form-check-label">
+                                        Pin cost manually (skip auto-recalculation from components)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <table class="table table-bordered">
+                            <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th class="w-150px">Qty</th>
+                                <th class="w-125px">Unit Cost</th>
+                                <th class="w-125px">Line Cost</th>
+                                <th>Notes</th>
+                                <th class="w-50px"></th>
+                            </tr>
+                            </thead>
+                            <tbody id="componentTable">
+                            @if($item->exists)
+                                @foreach($item->components()->with('componentItem')->get() as $idx => $recipe_line)
+                                    <tr data-cost="{{ $recipe_line->componentItem->cost ?? 0 }}">
+                                        <td>
+                                            <input type="hidden" name="components[{{ $idx }}][component_item_id]"
+                                                   value="{{ $recipe_line->component_item_id }}"/>
+                                            {{ $recipe_line->componentItem->name ?? 'N/A' }}
+                                            <span class="text-muted">({{ $recipe_line->componentItem->uom_label ?? 'pc' }})</span>
+                                        </td>
+                                        <td>
+                                            <input type="number" name="components[{{ $idx }}][qty]" class="form-control"
+                                                   value="{{ $recipe_line->qty + 0 }}" min="0.0001" step="any" required>
+                                        </td>
+                                        <td class="align-middle text-end js-component-unit-cost">
+                                            {{ number_format($recipe_line->componentItem->cost ?? 0, 2) }}
+                                        </td>
+                                        <td class="align-middle text-end js-component-line-cost">—</td>
+                                        <td>
+                                            <input type="text" name="components[{{ $idx }}][notes]" class="form-control"
+                                                   value="{{ $recipe_line->notes }}" maxlength="255">
+                                        </td>
+                                        <td>
+                                            <button type="button" class="btn btn-danger btn-icon btn-sm js-remove-component">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            @endif
+                            </tbody>
+                            <tfoot>
+                            <tr>
+                                <th colspan="2">
+                                    <select id="componentSelect" class="form-select" data-placeholder="Search item or barcode">
+                                        <option value=""></option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <button type="button" id="btnAddComponent" class="btn btn-light-info">Add</button>
+                                </th>
+                                <th colspan="3" class="text-end align-middle">
+                                    Computed cost: <span id="recipeTotalCost" class="fw-bold">0.00</span>
+                                </th>
+                            </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+                {{-- end::Recipe --}}
                 {{-- begin::Inventory --}}
                 <div class="card card-flush py-4">
                     <div class="card-header">
@@ -597,4 +687,84 @@
         // Expose for create/edit page scripts that build dynamic rows.
         window.__itemUomRecalc = { recalcRow, recalcAll, attachNumericGuard, canManageUnitLock };
     })();
+</script>
+<script>
+    // Recipe / components repeater. Runs after window load so jQuery +
+    // select2 (initialised by the page-level scripts) are guaranteed present.
+    window.addEventListener('load', function () {
+        if (!window.jQuery) {
+            return;
+        }
+        var $ = window.jQuery;
+        var componentTable = $('#componentTable');
+        var componentSelect = $('#componentSelect');
+        var totalCostEl = document.getElementById('recipeTotalCost');
+        var nextIndex = componentTable.find('tr').length;
+
+        componentSelect.select2({
+            ajax: {
+                url: '{{ route('items.select') }}',
+                delay: 250,
+                type: 'get',
+                dataType: 'json',
+                data: function (params) {
+                    return { term: params.term };
+                },
+                processResults: function (data) {
+                    return { results: data };
+                },
+                cache: true
+            }
+        });
+
+        function recalcRecipe() {
+            var total = 0;
+            componentTable.find('tr').each(function () {
+                var cost = parseFloat($(this).data('cost')) || 0;
+                var qty = parseFloat($(this).find('input[name$="[qty]"]').val()) || 0;
+                var line = cost * qty;
+                total += line;
+                $(this).find('.js-component-line-cost').text(line.toFixed(2));
+            });
+            if (totalCostEl) {
+                totalCostEl.textContent = total.toFixed(2);
+            }
+        }
+
+        $('#btnAddComponent').on('click', function () {
+            var itemId = componentSelect.val();
+            if (!itemId) {
+                return;
+            }
+            if (componentTable.find('input[name$="[component_item_id]"][value="' + itemId + '"]').length) {
+                componentSelect.val(null).trigger('change');
+                return;
+            }
+            $.get('/admin/items/get/' + itemId, function (component) {
+                var label = component.uom_label || 'pc';
+                var row = $('<tr data-cost="' + (component.cost || 0) + '">' +
+                    '<td><input type="hidden" name="components[' + nextIndex + '][component_item_id]" value="' + component.id + '"/>' +
+                    $('<span>').text(component.name).html() + ' <span class="text-muted">(' + label + ')</span></td>' +
+                    '<td><input type="number" name="components[' + nextIndex + '][qty]" class="form-control" value="1" min="0.0001" step="any" required></td>' +
+                    '<td class="align-middle text-end js-component-unit-cost">' + parseFloat(component.cost || 0).toFixed(2) + '</td>' +
+                    '<td class="align-middle text-end js-component-line-cost">—</td>' +
+                    '<td><input type="text" name="components[' + nextIndex + '][notes]" class="form-control" maxlength="255"></td>' +
+                    '<td><button type="button" class="btn btn-danger btn-icon btn-sm js-remove-component"><i class="fas fa-times"></i></button></td>' +
+                    '</tr>');
+                componentTable.append(row);
+                nextIndex++;
+                recalcRecipe();
+            });
+            componentSelect.val(null).trigger('change');
+        });
+
+        componentTable.on('click', '.js-remove-component', function () {
+            $(this).closest('tr').remove();
+            recalcRecipe();
+        });
+
+        componentTable.on('input', 'input[name$="[qty]"]', recalcRecipe);
+
+        recalcRecipe();
+    });
 </script>

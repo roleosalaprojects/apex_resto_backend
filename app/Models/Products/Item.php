@@ -58,6 +58,9 @@ class Item extends Model
         'priority',
         'featured',
         'featured_order',
+        'is_composite',
+        'cost_override',
+        'uom_label',
     ];
 
     /**
@@ -69,6 +72,8 @@ class Item extends Model
             'priority' => 'boolean',
             'featured' => 'boolean',
             'featured_order' => 'integer',
+            'is_composite' => 'boolean',
+            'cost_override' => 'boolean',
         ];
     }
 
@@ -146,6 +151,37 @@ class Item extends Model
     public function wholesalePriceTiers(): HasMany
     {
         return $this->hasMany(WholesalePriceTier::class)->orderBy('min_qty', 'asc');
+    }
+
+    /**
+     * Recipe lines when this item is a composite (parent side).
+     */
+    public function components(): HasMany
+    {
+        return $this->hasMany(ItemComponent::class, 'item_id');
+    }
+
+    /**
+     * Recipe lines where this item is an ingredient of other composites.
+     */
+    public function usedIn(): HasMany
+    {
+        return $this->hasMany(ItemComponent::class, 'component_item_id');
+    }
+
+    /**
+     * Sum of component qty x component cost. Source of truth for a
+     * composite's cost unless cost_override is set.
+     */
+    public function computedComponentCost(): float
+    {
+        return round(
+            $this->components()
+                ->with('componentItem:id,cost')
+                ->get()
+                ->sum(fn (ItemComponent $component) => (float) $component->qty * (float) ($component->componentItem->cost ?? 0)),
+            2
+        );
     }
 
     public function hasWholesalePricing(): bool

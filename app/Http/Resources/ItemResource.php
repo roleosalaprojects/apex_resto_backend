@@ -34,6 +34,19 @@ class ItemResource extends JsonResource
             'solo_parent' => $this->solo_parent,
             'naac' => $this->naac,
             'priority' => (bool) $this->priority,
+            'is_composite' => (bool) $this->is_composite,
+            'cost_override' => (bool) $this->cost_override,
+            'uom_label' => $this->uom_label,
+            'components' => $this->whenLoaded('components', function () {
+                return $this->components->map(fn ($component) => [
+                    'id' => $component->id,
+                    'component_item_id' => $component->component_item_id,
+                    'qty' => $component->qty,
+                    'notes' => $component->notes,
+                    'name' => $component->componentItem?->name,
+                    'uom_label' => $component->componentItem?->uom_label,
+                ]);
+            }),
             'category' => new CategoryResource($this->whenLoaded('category')),
             'tax' => $this->whenLoaded('tax'),
             'supplier' => $this->whenLoaded('supplier'),

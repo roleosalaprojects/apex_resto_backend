@@ -18,6 +18,7 @@ use App\Models\Products\ItemUnit;
 use App\Models\Products\PriceHistory;
 use App\Models\Products\Unit;
 use App\Models\Settings\Store;
+use App\Services\CompositeItemService;
 use Carbon\Carbon;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\View\Factory;
@@ -91,6 +92,12 @@ class /**/ ItemController extends Controller
             'type' => 'required',
             'image' => 'mimes:jpg,png,jpeg,gif,svg | nullable',
             'creditable_to_points' => 'nullable',
+            'uom_label' => 'nullable|string|max:10',
+            'cost_override' => 'nullable',
+            'components' => 'nullable|array',
+            'components.*.component_item_id' => 'required_with:components|integer|exists:items,id',
+            'components.*.qty' => 'required_with:components|numeric|min:0.0001',
+            'components.*.notes' => 'nullable|string|max:255',
         ]);
         $validate->validate();
         // if($validate->fails()){
@@ -144,7 +151,21 @@ class /**/ ItemController extends Controller
             'type' => $request->type,
             'image' => $last_image,
             'creditable_to_points' => $request->creditable_to_points == 'on',
+            'uom_label' => $request->uom_label,
+            'cost_override' => $request->cost_override == 'on',
         ]);
+
+        if (is_array($request->components)) {
+            try {
+                app(CompositeItemService::class)->syncComponents(
+                    $item,
+                    array_values($request->components),
+                    auth()->user()->user_id
+                );
+            } catch (\InvalidArgumentException $e) {
+                return redirect()->back()->withInput()->with('danger', $e->getMessage());
+            }
+        }
 
         // Log initial price history
         if ($price > 0 || $request->cost > 0) {
@@ -264,6 +285,12 @@ class /**/ ItemController extends Controller
             'type' => 'required',
             'image' => 'mimes:jpg,png,jpeg,gif,svg | nullable',
             'creditable_to_points' => 'nullable',
+            'uom_label' => 'nullable|string|max:10',
+            'cost_override' => 'nullable',
+            'components' => 'nullable|array',
+            'components.*.component_item_id' => 'required_with:components|integer|exists:items,id',
+            'components.*.qty' => 'required_with:components|numeric|min:0.0001',
+            'components.*.notes' => 'nullable|string|max:255',
         ]);
         $validate->validate();
 
@@ -341,7 +368,21 @@ class /**/ ItemController extends Controller
             'discountable' => $request->discountable,
             'type' => $request->type,
             'creditable_to_points' => $request->creditable_to_points == 'on',
+            'uom_label' => $request->uom_label,
+            'cost_override' => $request->cost_override == 'on',
         ]);
+
+        if ($request->has('components')) {
+            try {
+                app(CompositeItemService::class)->syncComponents(
+                    $item->fresh(),
+                    array_values((array) $request->components),
+                    auth()->user()->user_id
+                );
+            } catch (\InvalidArgumentException $e) {
+                return redirect()->back()->withInput()->with('danger-callout', $e->getMessage());
+            }
+        }
         // Capture the previous lock state per unit_id BEFORE deleting, so users
         // without the unit_lock role can still edit items without losing locks
         // that a higher-privileged user previously configured.

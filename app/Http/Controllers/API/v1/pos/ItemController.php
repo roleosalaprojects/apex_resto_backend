@@ -24,8 +24,9 @@ class ItemController extends Controller
                 }]);
             },
             'wholesalePriceTiers',
+            'components.componentItem:id,name,cost,uom_label',
         ])
-            ->select('id', 'name', 'price', 'markup', 'cost', 'category_id', 'supplier_id', 'image')
+            ->select('id', 'name', 'price', 'markup', 'cost', 'category_id', 'supplier_id', 'image', 'is_composite', 'uom_label')
             ->where(function ($q) use ($request) {
                 $q->where('name', 'like', "%$request->term%")
                     ->orWhere('barcode', 'like', "%$request->term%");
@@ -56,6 +57,7 @@ class ItemController extends Controller
                 $q->with('store');
             },
             'wholesalePriceTiers',
+            'components.componentItem:id,name,cost,uom_label',
         ]);
 
         return $this->success(new ItemResource($item));

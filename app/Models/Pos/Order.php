@@ -4,6 +4,7 @@ namespace App\Models\Pos;
 
 use App\Models\Settings\Pos as PosTerminal;
 use App\Models\User;
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +14,7 @@ use Mavinoo\Batch\Traits\HasBatch;
 
 class Order extends Model
 {
-    use HasBatch, HasFactory, SoftDeletes;
+    use Auditable, HasBatch, HasFactory, SoftDeletes;
 
     public const STATUS_PENDING = 0;
 

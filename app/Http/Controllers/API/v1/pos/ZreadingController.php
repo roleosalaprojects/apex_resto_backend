@@ -221,15 +221,26 @@ class ZreadingController extends Controller
         }
 
         $validated['counter'] = $last_counter;
+        $validated['z_counter'] = $last_counter;
         $validated['user_id'] = \Auth::user()->id;
         $validated['pos_id'] = $pos->id;
         $validated['store_id'] = $pos->store_id;
+
+        // Server-computed Annex F aggregates over the open (unswept,
+        // non-training) sales for this terminal. Voids are reported
+        // separately and excluded from gross/tender totals.
+        $validated = array_merge($validated, $this->annexFAggregates($pos->id));
+        $validated['txn_no'] = app(\App\Services\DocumentNumberService::class)->nextTransactionNumber($pos);
+
         // Create Z-Reading
         $zreading = Zreading::create($validated);
 
-        // Update Sales Transactions Related to this reading
+        // Update Sales Transactions Related to this reading. Training-mode
+        // sales are never linked to a z-reading — they stay off the
+        // official accumulated-sales roll-forward.
         $sales = Sale::where('z_reading_id', null)
             ->where('pos_id', $zreading->pos_id)
+            ->where('is_training', false)
             ->get();
         $salesArray = [];
         foreach ($sales as $sale) {
@@ -307,5 +318,43 @@ class ZreadingController extends Controller
         );
 
         return $this->success($zreading);
+    }
+
+    /**
+     * Compute BIR Annex F aggregates over the open, non-training sales for
+     * a terminal: void/return document ranges, void totals, per-tender
+     * breakdown, and gross sales (voids excluded).
+     *
+     * @return array<string, mixed>
+     */
+    private function annexFAggregates(int $posId): array
+    {
+        $base = Sale::where('pos_id', $posId)
+            ->whereNull('z_reading_id')
+            ->where('is_training', false);
+
+        $valid = (clone $base)->where('cancelled', false);
+
+        $tender = fn (int $type) => (float) (clone $valid)
+            ->where('type', false)
+            ->where('payment_type', $type)
+            ->sum('total');
+
+        $voids = (clone $base)->where('cancelled', true)->where('type', false);
+        $returns = (clone $base)->where('type', true);
+
+        return [
+            'gross_sales' => round((float) (clone $valid)->where('type', false)->sum('total'), 2),
+            'cheque' => round($tender(Sale::PAYMENT_CHEQUE), 2),
+            'card' => round($tender(Sale::PAYMENT_CARD), 2),
+            'gift_cert' => round($tender(Sale::PAYMENT_GIFT_CERT), 2),
+            'bank_transfer' => round($tender(Sale::PAYMENT_BANK_TRANSFER), 2),
+            'void_amount' => round((float) (clone $voids)->sum('total'), 2),
+            'void_count' => (clone $voids)->count(),
+            'first_void_no' => (clone $voids)->min('void_no'),
+            'last_void_no' => (clone $voids)->max('void_no'),
+            'first_return_no' => (clone $returns)->min('return_no'),
+            'last_return_no' => (clone $returns)->max('return_no'),
+        ];
     }
 }

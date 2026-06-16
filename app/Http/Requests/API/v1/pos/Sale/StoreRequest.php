@@ -29,7 +29,12 @@ class StoreRequest extends FormRequest
 
             // Sale details
             'details' => ['required', 'array'],
-            'details.payment_type' => ['required', 'integer'],
+            'details.payment_type' => ['required', 'integer', 'between:1,7'],
+
+            // Restaurant dine-in headcount (drives SC/PWD group discount).
+            'details.pax' => ['nullable', 'integer', 'min:1'],
+            'details.sc_count' => ['nullable', 'integer', 'min:0'],
+            'details.pwd_count' => ['nullable', 'integer', 'min:0'],
             'details.reference_number' => ['nullable', 'string'],
             'details.bank_amount' => ['nullable', 'numeric'],
             'details.bank_id' => ['nullable', 'integer', 'exists:banks,id'],
@@ -98,6 +103,8 @@ class StoreRequest extends FormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
+            $this->validateGroupDiscount($validator);
+
             $paymentType = $this->input('details.payment_type');
             if ($paymentType == 3) {
                 $customerId = $this->input('details.customer_id');
@@ -120,6 +127,42 @@ class StoreRequest extends FormRequest
                 }
             }
         });
+    }
+
+    /**
+     * Recompute the SC/PWD group discount server-side and reject sales
+     * whose claimed special discount drifts more than ±0.01 from the
+     * RMC 38-2012 allocation. Only runs for dine-in sales that declare
+     * beneficiaries (pax + sc/pwd counts), so plain retail sales are
+     * unaffected.
+     */
+    protected function validateGroupDiscount($validator): void
+    {
+        $pax = (int) $this->input('details.pax', 0);
+        $beneficiaries = (int) $this->input('details.sc_count', 0) + (int) $this->input('details.pwd_count', 0);
+
+        if ($pax < 1 || $beneficiaries < 1) {
+            return;
+        }
+
+        $claimed = (float) $this->input('details.sc_discount', 0)
+            + (float) $this->input('details.pwd_discount', 0);
+        $vatRemoved = (float) $this->input('details.vat_special_discounts', 0);
+        $net = (float) $this->input('details.total', 0);
+
+        // Reconstruct the VAT-inclusive gross the discount was taken from.
+        $gross = $net + $claimed + $vatRemoved;
+
+        $expected = app(\App\Services\DiscountAllocationService::class)
+            ->allocateGroupDiscount($gross, $pax, $beneficiaries);
+
+        if (abs($expected['discount_amount'] - $claimed) > 0.01) {
+            $validator->errors()->add(
+                'details.sc_discount',
+                'Group discount mismatch. Expected '.number_format($expected['discount_amount'], 2).
+                ' for '.$beneficiaries.' of '.$pax.' diners.'
+            );
+        }
     }
 
     /**

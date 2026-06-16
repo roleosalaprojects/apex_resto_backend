@@ -21,8 +21,11 @@ class UpdateItemStocksJob implements ShouldQueue
 
     /**
      * Create a new job instance.
+     *
+     * @param  bool  $restore  Force stock restoration regardless of sale type
+     *                         (used when voiding a sale rather than refunding).
      */
-    public function __construct(Sale $sale)
+    public function __construct(Sale $sale, private bool $restore = false)
     {
         $this->sale = $sale;
     }
@@ -76,19 +79,21 @@ class UpdateItemStocksJob implements ShouldQueue
          * We also need to consider the Refund.
          * if type = false (considered as sold)
          * if type = true (considered as return)
+         * A void forces restoration regardless of the original type.
          * */
-        if ($this->sale->type == false) {
+        $isDeduction = ! $this->restore && $this->sale->type == false;
+        if ($isDeduction) {
             // Sale
             $newStock = $itemStore->stock - $qty;
         } else {
-            // Return
+            // Return / void restoration
             $newStock = $itemStore->stock + $qty;
         }
         $itemStore->update(['stock' => $newStock]);
         \Log::info('Stocks successfully updated! from '.$oldStock.' to '.$newStock.' son: '.$this->sale->son.PHP_EOL);
 
         // Notify if stock dropped to low/critical/out-of-stock
-        if ($this->sale->type == false && $newStock <= 10 && $oldStock > 10) {
+        if ($isDeduction && $newStock <= 10 && $oldStock > 10) {
             try {
                 $itemName = Item::find($itemId)->name ?? "Item #{$itemId}";
                 $level = $newStock <= 0 ? 'OUT OF STOCK' : ($newStock <= 5 ? 'Critical' : 'Low');

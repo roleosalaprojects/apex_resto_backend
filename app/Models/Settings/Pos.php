@@ -28,7 +28,22 @@ class Pos extends Model
         'expiry',
         'type',
         'reset_counter',
+        'void_counter',
+        'return_counter',
+        'txn_counter',
+        'training_counter',
+        'training_mode',
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'training_mode' => 'boolean',
+        ];
+    }
 
     // public function sales(){
     //     return $this->hasMany(Sale::class, 'pos_id', 'id');

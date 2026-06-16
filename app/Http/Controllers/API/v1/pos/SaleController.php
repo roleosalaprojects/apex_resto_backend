@@ -8,12 +8,14 @@ use App\Http\Requests\API\v1\pos\Sale\StoreRequest;
 use App\Http\Resources\SaleResource;
 use App\Http\Traits\ApiResponse;
 use App\Jobs\API\v1\PosLog\PosLogJob;
+use App\Jobs\API\v1\Sale\UpdateItemStocksJob;
 use App\Models\CustomerRelations\Customer;
 use App\Models\CustomerRelations\CustomerCreditTransaction;
 use App\Models\Pos\Sale;
 use App\Models\Pos\SaleLine;
 use App\Models\Settings\Pos;
 use App\Services\Data\SaleCreationData;
+use App\Services\DocumentNumberService;
 use App\Services\FcmService;
 use App\Services\SaleCreationService;
 use Carbon\Carbon;
@@ -27,9 +29,10 @@ class SaleController extends Controller
 {
     use ApiResponse;
 
-    private int $max_counter = 999999999999999;
-
-    public function __construct(private SaleCreationService $saleCreation) {}
+    public function __construct(
+        private SaleCreationService $saleCreation,
+        private DocumentNumberService $documentNumbers,
+    ) {}
 
     /**
      * Display a listing of the resource.
@@ -62,9 +65,18 @@ class SaleController extends Controller
     private function processSale(Request $request): JsonResponse
     {
         $pos = Pos::with('store')->find($request->pos_id);
-        [$counter, $sonType] = $this->computeCounter($pos, $request);
+        $isTraining = (bool) $pos->training_mode;
+        $numbers = $this->documentNumbers->nextSaleNumbers($pos, $isTraining, $request->sale_id);
 
-        $data = SaleCreationData::fromPosRequest($request, $pos, $counter, $sonType);
+        $data = SaleCreationData::fromPosRequest(
+            $request,
+            $pos,
+            $numbers['counter'],
+            $numbers['son_type'],
+            $numbers['txn_no'],
+            $isTraining,
+            $numbers['return_no'],
+        );
         $sale = $this->saleCreation->create($data);
 
         $sale->load([
@@ -96,45 +108,6 @@ class SaleController extends Controller
         return $this->success([
             'saleOrder' => new SaleResource($sale),
         ]);
-    }
-
-    /**
-     * Returns [int $counter, int|string $sonType] for a POS sale.
-     *
-     * Sale (type=false): counter is the latest POS counter + 1, starting
-     * at 100000 and rolling the pos.reset_counter when it overflows.
-     * Refund (sale_id set): counter is the latest refund counter + 1,
-     * starting at 1000000. sonType is 'R' so the invoice number reads
-     * "R-counter-posId" instead of "{resetCounter}-counter-posId".
-     *
-     * @return array{0: int, 1: int|string}
-     */
-    private function computeCounter(Pos $pos, Request $request): array
-    {
-        $resetCounter = $pos->reset_counter;
-        $counter = 0;
-
-        if ($request->sale_id != null) {
-            $latestSale = Sale::where('pos_id', $request->pos_id)->where('type', true)->latest()->first();
-            $counter = $latestSale ? $latestSale->counter + 1 : 1000000;
-        } else {
-            $latestSale = Sale::where('pos_id', $request->pos_id)->where('type', false)->latest()->first();
-            if ($latestSale) {
-                if ($latestSale->counter == $this->max_counter) {
-                    $pos->update(['reset_counter' => $pos->reset_counter + 1]);
-                    $resetCounter += 1;
-                    $counter = 100000;
-                } else {
-                    $counter = $latestSale->counter + 1;
-                }
-            } else {
-                $counter = 100000;
-            }
-        }
-
-        $sonType = $request->sale_id ? 'R' : $resetCounter;
-
-        return [$counter, $sonType];
     }
 
     /**
@@ -382,5 +355,67 @@ class SaleController extends Controller
         }
 
         return $response;
+    }
+
+    /**
+     * Same-day full void of an issued sale (BIR Annex F). Marks the sale
+     * cancelled, stamps a gapless void number from the terminal series,
+     * and restores the deducted stock. The official SI series is never
+     * reused — the voided SI number stays consumed.
+     */
+    public function void(Request $request, Sale $sale): JsonResponse
+    {
+        if ($sale->cancelled) {
+            return $this->error('Sale is already voided.', 422);
+        }
+        if ($sale->type) {
+            return $this->error('Refund documents cannot be voided.', 422);
+        }
+
+        $pos = Pos::find($sale->pos_id);
+        $voidNo = $this->documentNumbers->nextVoidNumber($pos);
+
+        $sale->update([
+            'cancelled' => true,
+            'void_no' => $voidNo,
+            'approved_by' => Auth::guard('api')->id(),
+        ]);
+
+        // Restore the stock the sale deducted (composite-aware).
+        UpdateItemStocksJob::dispatch($sale, restore: true);
+
+        PosLogJob::dispatch(
+            0,
+            0,
+            $sale->total,
+            13,
+            'Void SI #'.$sale->son.' | Void No: '.$voidNo,
+            $sale->id,
+            $sale->pos_id,
+            $sale->store_id,
+            Auth::guard('api')->id() ?? $sale->sales_by,
+        );
+
+        return $this->success([
+            'sale_id' => $sale->id,
+            'son' => $sale->son,
+            'void_no' => $voidNo,
+            'cancelled' => true,
+        ]);
+    }
+
+    /**
+     * Record a receipt reprint for the BIR audit trail.
+     */
+    public function reprint(Sale $sale): JsonResponse
+    {
+        $sale = $this->documentNumbers->recordReprint($sale, Auth::guard('api')->id());
+
+        return $this->success([
+            'sale_id' => $sale->id,
+            'son' => $sale->son,
+            'reprint_count' => $sale->reprint_count,
+            'last_reprinted_at' => $sale->last_reprinted_at,
+        ]);
     }
 }

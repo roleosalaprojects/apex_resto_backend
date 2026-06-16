@@ -8,6 +8,7 @@ use App\Models\Ecommerce\EcommerceOrder;
 use App\Models\Settings\Pos as PosTerminal;
 use App\Models\Settings\Store;
 use App\Models\User;
+use App\Traits\Auditable;
 use App\Traits\SerializesDateToAppTimezone;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,7 +18,19 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Sale extends Model
 {
-    use HasFactory, SerializesDateToAppTimezone;
+    use Auditable, HasFactory, SerializesDateToAppTimezone;
+
+    /**
+     * High-churn / redundant fields excluded from audit diffs. The BIR
+     * money/breakdown columns stay audited; only framework + denormalised
+     * receipt copy fields are dropped.
+     *
+     * @var array<int, string>
+     */
+    protected array $excludedAuditFields = [
+        'header',
+        'footer',
+    ];
 
     /** Cash tendered at point of sale. */
     public const PAYMENT_CASH = 1;
@@ -34,6 +47,12 @@ class Sale extends Model
     /** Cheque (admin-recorded cashless) — see cheque_status for clearing state. */
     public const PAYMENT_CHEQUE = 5;
 
+    /** Card (credit/debit terminal). */
+    public const PAYMENT_CARD = 6;
+
+    /** Gift certificate / gift card redemption. */
+    public const PAYMENT_GIFT_CERT = 7;
+
     /** Cheque written, not yet cleared. No bank impact yet. */
     public const CHEQUE_PENDING = 'pending';
 
@@ -45,6 +64,13 @@ class Sale extends Model
 
     protected $fillable = [
         'counter',
+        'txn_no',
+        'void_no',
+        'return_no',
+        'is_training',
+        'reprint_count',
+        'last_reprinted_at',
+        'last_reprinted_by',
         'son',
         'total',
         'cash',
@@ -107,6 +133,17 @@ class Sale extends Model
         'voucher_code',
         'voucher_discount',
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'is_training' => 'boolean',
+            'last_reprinted_at' => 'datetime',
+        ];
+    }
 
     public function sold_by(): HasOne
     {

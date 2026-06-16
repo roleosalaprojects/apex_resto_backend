@@ -109,6 +109,7 @@ class ReportService
         $query = Sale::where('user_id', $userId)
             ->whereNull('pos_id')
             ->where('cancelled', 0)
+            ->where('is_training', false)
             ->where('type', false)
             ->whereBetween('created_at', [$start, $end])
             ->select(
@@ -142,6 +143,7 @@ class ReportService
     public function getPendingChequesSummary(int $userId): array
     {
         $row = Sale::where('user_id', $userId)
+            ->where('is_training', false)
             ->where('payment_type', Sale::PAYMENT_CHEQUE)
             ->where('cheque_status', Sale::CHEQUE_PENDING)
             ->select(
@@ -169,6 +171,7 @@ class ReportService
     {
         $query = Sale::where('user_id', $userId)
             ->where('cancelled', 0)
+            ->where('is_training', false)
             ->whereBetween('created_at', [$start, $end])
             ->select(
                 DB::raw('COALESCE(SUM(CASE WHEN type = 0 THEN total ELSE 0 END), 0) as sales'),

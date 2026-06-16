@@ -92,6 +92,8 @@ Route::name('api.')->prefix('v1')->group(function () {
         Route::prefix('sales')->group(function () {
             Route::get('/{pos}', [\App\Http\Controllers\API\v1\pos\SaleController::class, 'getReceiptsByPos']);
             Route::post('/refund/{sale}', [\App\Http\Controllers\API\v1\pos\SaleController::class, 'refundReceipt']);
+            Route::post('/void/{sale}', [\App\Http\Controllers\API\v1\pos\SaleController::class, 'void']);
+            Route::post('/reprint/{sale}', [\App\Http\Controllers\API\v1\pos\SaleController::class, 'reprint']);
         });
 
         // Restaurant Orders (waiter terminal)

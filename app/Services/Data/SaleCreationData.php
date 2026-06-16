@@ -49,6 +49,9 @@ final readonly class SaleCreationData
         Pos $pos,
         int $counter,
         int|string $sonType,
+        int $txnNo = 0,
+        bool $isTraining = false,
+        ?int $returnNo = null,
     ): self {
         $now = Carbon::now();
         $discount = 0;
@@ -104,7 +107,13 @@ final readonly class SaleCreationData
 
         $saleAttributes = [
             'counter' => $counter,
+            'txn_no' => $txnNo,
+            'is_training' => $isTraining,
+            'return_no' => $returnNo,
             'son' => $sonType.'-'.$counter.'-'.$request->pos_id,
+            'pax' => $request->details['pax'] ?? null,
+            'sc_count' => $request->details['sc_count'] ?? null,
+            'pwd_count' => $request->details['pwd_count'] ?? null,
             'payment_type' => $request->details['payment_type'],
             'reference_number' => $request->details['reference_number'],
             'bank_amount' => $request->details['bank_amount'],

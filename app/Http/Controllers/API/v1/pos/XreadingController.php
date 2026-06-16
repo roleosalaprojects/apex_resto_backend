@@ -84,8 +84,8 @@ class XreadingController extends Controller
             'son.min_son as first_or, '.
             'son.max_son as last_or '.
             'FROM sales, '.
-            '(select max(son) as max_son, min(son) as min_son from sales WHERE created_at AND pos_id = ? AND z_reading_id IS NULL) son '.
-            'WHERE pos_id = ? AND z_reading_id IS NULL',
+            '(select max(son) as max_son, min(son) as min_son from sales WHERE created_at AND pos_id = ? AND is_training = 0 AND z_reading_id IS NULL) son '.
+            'WHERE pos_id = ? AND is_training = 0 AND z_reading_id IS NULL',
             [$posId, $posId]
         );
         //        $ciq = DB::select("SELECT * from pos_logs WHERE pos_id = $pos->id AND type = 3 AND so_id = 0 AND store_id = $pos->store_id");
@@ -118,6 +118,12 @@ class XreadingController extends Controller
             'ROUND(sum(if(type = 0, if(payment_type = 1, total, 0), 0)), 2) as cash,'.
             'ROUND(sum(if(type = 0, if(payment_type = 2, total, 0), 0)), 2) as e_wallet,'.
             'ROUND(sum(if(type = 0, if(payment_type = 3, total, 0), 0)), 2) as credit_sales,'.
+            'ROUND(sum(if(type = 0, if(payment_type = 4, total, 0), 0)), 2) as bank_transfer,'.
+            'ROUND(sum(if(type = 0, if(payment_type = 5, total, 0), 0)), 2) as cheque,'.
+            'ROUND(sum(if(type = 0, if(payment_type = 6, total, 0), 0)), 2) as card,'.
+            'ROUND(sum(if(type = 0, if(payment_type = 7, total, 0), 0)), 2) as gift_cert,'.
+            'void.void_amount as void_amount,'.
+            'void.void_count as void_count,'.
             'ROUND(sum(if(type = 1, total, 0)), 2) as refund,'.
             'ROUND(sum(if(type = 1, vat, 0)), 2) as vat_on_refunds,'.
             'ROUND(sum(if(type = 1, vatable, 0)), 2) as vatable_on_refunds,'.
@@ -150,10 +156,11 @@ class XreadingController extends Controller
             '(select created_at from sales where id = son.min_id) as begin_date, '.
             '(select created_at from sales where id = son.max_id) as end_date '.
             'FROM sales, '.
-            "(select max(son) as max_son, min(son) as min_son, max(id) as max_id, min(id) as min_id from sales WHERE created_at AND pos_id = ? AND type = 0 AND z_reading_id IS NULL $userFilter) son, ".
-            "(select max(son) as max_son, min(son) as min_son, max(id) as max_id, min(id) as min_id from sales WHERE created_at AND pos_id = ? AND type = 1 AND z_reading_id IS NULL $userFilter) refund ".
-            "WHERE pos_id = ? AND z_reading_id IS NULL $userFilter",
-            array_merge([$posId], $userParams, [$posId], $userParams, [$posId], $userParams)
+            "(select max(son) as max_son, min(son) as min_son, max(id) as max_id, min(id) as min_id from sales WHERE created_at AND pos_id = ? AND type = 0 AND is_training = 0 AND cancelled = 0 AND z_reading_id IS NULL $userFilter) son, ".
+            "(select max(son) as max_son, min(son) as min_son, max(id) as max_id, min(id) as min_id from sales WHERE created_at AND pos_id = ? AND type = 1 AND is_training = 0 AND z_reading_id IS NULL $userFilter) refund, ".
+            "(select COALESCE(sum(total),0) as void_amount, count(id) as void_count from sales WHERE pos_id = ? AND type = 0 AND is_training = 0 AND cancelled = 1 AND z_reading_id IS NULL $userFilter) void ".
+            "WHERE pos_id = ? AND is_training = 0 AND cancelled = 0 AND z_reading_id IS NULL $userFilter",
+            array_merge([$posId], $userParams, [$posId], $userParams, [$posId], $userParams, [$posId], $userParams)
         );
         $previous_accumulated_sales = 0;
         if ($request->type) {

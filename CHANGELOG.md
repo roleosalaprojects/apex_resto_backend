@@ -6,6 +6,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Restaurant POS] - 2026-06-16
+
+Forked from apex_backend with a fresh history and specialised into a
+restaurant POS backend. Backend + admin dashboard + REST APIs only;
+Flutter waiter/KDS/cashier frontends are a later project.
+
+### Added — Composite items (Phase 1)
+- `is_composite` / `cost_override` / `uom_label` on items and an
+  `item_components` recipe table.
+- `CompositeItemService` (recipe sync, cost recalculation, BFS cycle
+  guard, active-component check) and an `ItemCostObserver` +
+  `RecalculateCompositeCostsJob` that cascade ingredient cost changes up
+  the recipe graph.
+- Selling a composite explodes the recipe and deducts each component's
+  stock (`UpdateItemStocksJob`); refunds restore symmetrically.
+- Admin item form recipe repeater with live computed cost; POS item API
+  exposes `is_composite` + components.
+
+### Added — Restaurant operations (Phase 2)
+- Tables, kitchen stations and reservations (models, admin CRUD +
+  DataTables, FullCalendar reservation feed, `rstrnt` role permissions).
+- Order / order-line extensions for dine-in/take-out/delivery, pax,
+  rounds, per-line kitchen routing and KDS line status.
+- `RestaurantOrderService` (open/rounds/transfer/void-line/settle/cancel)
+  settling through the shared `SaleCreationService`; `KdsService`
+  (station queue + line/order bump); `KitchenRoutingService`.
+- POS APIs: `/v1/restaurant-orders`, `/v1/kds/*`, `/v1/tables`,
+  `/v1/reservations`.
+
+### Added — BIR Annex F compliance (Phase 3)
+- Gapless per-terminal document series via `DocumentNumberService`
+  (SI / void / return / transaction numbers under a row lock); training
+  transactions use a separate counter and stay off the official series.
+- Card (6) and Gift Certificate (7) payment types.
+- Same-day void endpoint (issues void number, restores stock) and
+  receipt reprint tracking.
+- Training-mode exclusion across X/Z readings, `ReportService` and
+  dashboards; X/Z readings gain per-tender breakdown, void/return ranges,
+  `z_counter` and transaction numbers.
+- `DiscountAllocationService` SC/PWD group discount (RMC 38-2012) with
+  server-side ±0.01 validation of client discount math.
+- `Auditable` on Sale and Order.
+
+### Added — BIR reports, seeder, polish (Phase 4)
+- `BirReportService` + admin Annex F reports (sales summary, voided
+  transactions, discount sales book, adjustments, daily sales by VAT
+  class) with audit-logged CSV export.
+- `RestaurantDemoSeeder` (env-gated) — demo tenant, store, two terminals,
+  three stations, fine-unit ingredients, Iced Latte & Sisig composites,
+  twelve tables, sample reservations.
+
+### Changed
+- Rebranded identity (composer/package name, `.env.example`, README,
+  Postman collection) with non-colliding ports so apex_backend and
+  apex_resto_backend can run side by side.
+
+---
+
 ## [Unreleased] - 2026-05-11
 
 ### Security (BREAKING)

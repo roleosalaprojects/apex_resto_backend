@@ -11672,6 +11672,465 @@
           }
         }
       ]
+    },
+    {
+      "name": "Restaurant POS",
+      "item": [
+        {
+          "name": "Restaurant Orders",
+          "item": [
+            {
+              "name": "Open Order",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"order_type\": 0,\n    \"table_id\": 1,\n    \"pax\": 4,\n    \"pos_id\": 1,\n    \"lines\": [\n        {\n            \"item_id\": 1,\n            \"qty\": 2,\n            \"notes\": \"No onions\"\n        }\n    ]\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Open Orders",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Show Order",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Add Round",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/rounds",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "rounds"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"lines\": [\n        {\n            \"item_id\": 2,\n            \"qty\": 1\n        }\n    ]\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Transfer Table",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/transfer-table",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "transfer-table"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"table_id\": 3\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Void Line",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/lines\/1\/void",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "lines",
+                    "1",
+                    "void"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"reason\": \"Customer changed mind\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Settle",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/settle",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "settle"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"payment_type\": 1,\n    \"cash\": 500\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Cancel",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/cancel",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "cancel"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Kitchen Display (KDS)",
+          "item": [
+            {
+              "name": "Stations",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/kds\/stations",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "kds",
+                    "stations"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Station Queue",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/kds\/stations\/1\/queue?updated_since=",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "kds",
+                    "stations",
+                    "1",
+                    "queue?updated_since="
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Bump Line",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/kds\/lines\/1\/bump",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "kds",
+                    "lines",
+                    "1",
+                    "bump"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Bump Order",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/kds\/orders\/1\/bump",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "kds",
+                    "orders",
+                    "1",
+                    "bump"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Tables & Reservations",
+          "item": [
+            {
+              "name": "Tables",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/tables",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tables"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Reservations",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/reservations",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "reservations"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create Reservation",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/reservations",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "reservations"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"name\": \"Juan Dela Cruz\",\n    \"phone\": \"09171234567\",\n    \"party_size\": 4,\n    \"reserved_at\": \"2026-06-20 19:00:00\",\n    \"table_id\": 1\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Reservation Status",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application\/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/reservations\/1\/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "reservations",
+                    "1",
+                    "status"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"status\": \"confirmed\"\n}"
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "BIR (Void \/ Reprint)",
+          "item": [
+            {
+              "name": "Void Sale",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/sales\/void\/1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "sales",
+                    "void",
+                    "1"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Reprint Receipt",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}\/api\/v1\/sales\/reprint\/1",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "sales",
+                    "reprint",
+                    "1"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
     }
   ],
   "auth": {

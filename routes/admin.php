@@ -345,6 +345,17 @@ Route::middleware('auth')->prefix('/admin')->group(function () {
                 Route::get('/naac/{pos}', [\App\Http\Controllers\Admin\Reports\SpecialDiscountReports\NationalAthletesAndCoachesReportController::class, 'naacIndividualPosReport'])->name('reports.bir.specialDiscounts.naac.individual.pos');
                 Route::get('/naac/individual/table', [\App\Http\Controllers\Admin\Reports\SpecialDiscountReports\NationalAthletesAndCoachesReportController::class, 'naacIndividualPosReportTable'])->name('reports.bir.specialDiscounts.naac.individual.pos.table');
             });
+
+            // BIR Annex F statutory reports (RMO 24-2023)
+            Route::prefix('annexf')->group(function () {
+                Route::get('/', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'index'])->name('reports.bir.annexf');
+                Route::get('/sales-summary', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'salesSummary'])->name('reports.bir.annexf.sales-summary');
+                Route::get('/voided', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'voided'])->name('reports.bir.annexf.voided');
+                Route::get('/discount-book', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'discountBook'])->name('reports.bir.annexf.discount-book');
+                Route::get('/adjustments', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'adjustments'])->name('reports.bir.annexf.adjustments');
+                Route::get('/vat-class', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'vatClass'])->name('reports.bir.annexf.vat-class');
+                Route::get('/export/{report}', [\App\Http\Controllers\Admin\Reports\BirReportController::class, 'export'])->name('reports.bir.annexf.export');
+            });
         });
         // MAFFISCO
         Route::prefix('maffisco')->group(function () {

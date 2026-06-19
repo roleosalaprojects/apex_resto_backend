@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Restaurant POS] - 2026-06-19
+
+### Added — Split bill (Phase 5)
+- Per-line settlement: `order_lines.sales_id` links each line to the Sale
+  that settled it (`NULL` = unsettled), so one order can produce multiple
+  official receipts.
+- `RestaurantOrderService::splitSettle()` bills a chosen subset of an
+  order's lines onto its own Sale and leaves the rest open; the order
+  completes and the table frees only once every non-voided line is
+  settled. A shared `settleLines()` helper backs both `splitSettle()` and
+  the existing full `settle()`, which now bills whatever remains unsettled
+  — so a split bill can be finished with either call.
+- `POST /v1/restaurant-orders/{order}/split-settle` (`line_ids[]` +
+  payment); returns `fully_settled` and `order_status`. Selecting an
+  already-settled or voided line is rejected with `422`.
+- `SaleCreationData::fromRestaurantOrder` now bills an explicit set of
+  lines rather than "all non-voided", with no change to the full-settle
+  total/VAT behaviour.
+
 ## [Restaurant POS] - 2026-06-16
 
 Forked from apex_backend with a fresh history and specialised into a

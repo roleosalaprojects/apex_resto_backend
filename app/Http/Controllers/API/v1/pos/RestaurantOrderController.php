@@ -136,6 +136,41 @@ class RestaurantOrderController extends Controller
         ]);
     }
 
+    public function splitSettle(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'line_ids' => ['required', 'array', 'min:1'],
+            'line_ids.*' => ['integer'],
+            'payment_type' => ['required', 'integer'],
+            'cash' => ['nullable', 'numeric'],
+            'customer_id' => ['nullable', 'integer'],
+            'reference_number' => ['nullable', 'string'],
+            'bank_amount' => ['nullable', 'numeric'],
+            'bank_id' => ['nullable', 'integer'],
+        ]);
+
+        try {
+            $sale = $this->orders->splitSettle(
+                $order,
+                $validated['line_ids'],
+                $validated,
+                Auth::guard('api')->user()->user_id,
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        $order->refresh();
+
+        return $this->success([
+            'sale_id' => $sale->id,
+            'son' => $sale->son,
+            'total' => $sale->total,
+            'fully_settled' => $order->sales_id !== null,
+            'order_status' => $order->status,
+        ]);
+    }
+
     public function cancel(Order $order): JsonResponse
     {
         $order = $this->orders->cancel($order, Auth::guard('api')->id());

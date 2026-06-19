@@ -10,6 +10,7 @@ use App\Models\Restaurant\RestaurantTable;
 use App\Models\Settings\Pos;
 use App\Services\Data\SaleCreationData;
 use App\Services\SaleCreationService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -130,8 +131,8 @@ class RestaurantOrderService
     }
 
     /**
-     * Settle the order: convert non-voided lines into a Sale, link the
-     * order to it, mark complete, and free the table.
+     * Settle the whole order: bill every unsettled, non-voided line onto one
+     * Sale. After a split bill this pays off whatever remains.
      *
      * @param  array<string, mixed>  $payment
      */
@@ -140,26 +141,87 @@ class RestaurantOrderService
         $this->assertOpen($order);
 
         $pos = Pos::with('store')->findOrFail($order->pos_id);
+        $lines = $this->unsettledLines($order)->get();
 
-        return DB::transaction(function () use ($order, $payment, $pos) {
+        if ($lines->isEmpty()) {
+            throw new RuntimeException('Order has no unsettled lines to settle.');
+        }
+
+        return $this->settleLines($order, $lines, $payment, $pos);
+    }
+
+    /**
+     * Split bill: settle a chosen subset of the order's lines onto its own
+     * Sale (its own official SI), leaving the rest open. The order completes
+     * and the table frees only once every non-voided line is settled.
+     *
+     * @param  array<int, int>  $lineIds
+     * @param  array<string, mixed>  $payment
+     */
+    public function splitSettle(Order $order, array $lineIds, array $payment, int $userId): Sale
+    {
+        $this->assertOpen($order);
+
+        $lineIds = array_values(array_unique(array_map('intval', $lineIds)));
+
+        $pos = Pos::with('store')->findOrFail($order->pos_id);
+        $lines = $this->unsettledLines($order)->whereIn('id', $lineIds)->get();
+
+        if ($lines->count() !== count($lineIds)) {
+            throw new RuntimeException('One or more selected lines are invalid, already settled, or voided.');
+        }
+
+        return $this->settleLines($order, $lines, $payment, $pos);
+    }
+
+    /**
+     * Bill the given lines onto a fresh Sale, stamp each line with that
+     * sale, and — if nothing unsettled remains — complete the order and
+     * free its table.
+     *
+     * @param  Collection<int, OrderLine>  $lines
+     * @param  array<string, mixed>  $payment
+     */
+    private function settleLines(Order $order, Collection $lines, array $payment, Pos $pos): Sale
+    {
+        return DB::transaction(function () use ($order, $lines, $payment, $pos) {
             [$counter, $sonType] = $this->computeSaleCounter($pos);
 
-            $data = SaleCreationData::fromRestaurantOrder($order, $pos, $counter, $sonType, $payment);
+            $lines->loadMissing('item:id,cost,creditable_to_points,vatable');
+
+            $data = SaleCreationData::fromRestaurantOrder($order, $pos, $counter, $sonType, $lines, $payment);
             $sale = $this->saleCreation->create($data);
 
-            $order->update([
-                'sales_id' => $sale->id,
-                'status' => Order::STATUS_COMPLETED,
-                'completed_at' => now(),
-            ]);
+            OrderLine::whereIn('id', $lines->pluck('id'))->update(['sales_id' => $sale->id]);
 
-            if ($order->table_id) {
-                RestaurantTable::where('id', $order->table_id)
-                    ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+            if ($this->unsettledLines($order)->doesntExist()) {
+                $order->update([
+                    'sales_id' => $sale->id,
+                    'status' => Order::STATUS_COMPLETED,
+                    'completed_at' => now(),
+                ]);
+
+                if ($order->table_id) {
+                    RestaurantTable::where('id', $order->table_id)
+                        ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+                }
             }
 
             return $sale;
         });
+    }
+
+    /**
+     * Query for the order's lines that are neither voided nor already
+     * settled — i.e. what's still owed.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    private function unsettledLines(Order $order)
+    {
+        return $order->lines()
+            ->whereNull('sales_id')
+            ->where('line_status', '!=', OrderLine::LINE_VOIDED);
     }
 
     /**

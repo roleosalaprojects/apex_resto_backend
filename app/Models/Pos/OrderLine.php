@@ -47,6 +47,7 @@ class OrderLine extends Model
         'discountable',
         'type',
         'order_id',
+        'sales_id', // Sale that settled this line; NULL = unsettled (supports split bills)
         // Kitchen / KDS
         'notes',
         'round',
@@ -82,6 +83,11 @@ class OrderLine extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class, 'sales_id', 'id');
     }
 
     public function item(): BelongsTo

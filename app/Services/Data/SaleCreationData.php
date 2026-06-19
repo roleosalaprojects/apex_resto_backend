@@ -323,12 +323,17 @@ final readonly class SaleCreationData
     /**
      * Build from a restaurant Order being settled at the cashier. Mirrors
      * fromPosRequest's counter/SON conventions so settled dine-in sales
-     * share the official SI series. Only non-voided lines settle.
+     * share the official SI series.
+     *
+     * The caller passes the exact lines to bill on this receipt. For a full
+     * settlement that's every unsettled, non-voided line; for a split bill
+     * it's the selected subset — each subset becomes its own official SI.
      *
      * VAT split is kept simple here (vatable lines → vatable+vat, others →
      * vat_exempt); BIR Annex F group-discount/VAT refinement lands in the
      * next phase via DiscountAllocationService.
      *
+     * @param  iterable<int, OrderLine>  $lines  lines to bill on this receipt (item relation preloaded)
      * @param  array<string, mixed>  $payment  payment_type/cash/change/reference/bank fields
      */
     public static function fromRestaurantOrder(
@@ -336,10 +341,10 @@ final readonly class SaleCreationData
         Pos $pos,
         int $counter,
         int|string $sonType,
+        iterable $lines,
         array $payment,
     ): self {
         $now = Carbon::now();
-        $order->loadMissing('lines.item:id,cost,creditable_to_points,vatable');
 
         $saleLineRows = [];
         $total = 0;
@@ -349,11 +354,7 @@ final readonly class SaleCreationData
         $exemptTotal = 0;
         $creditableTotal = 0;
 
-        $settleLines = $order->lines->reject(
-            fn (OrderLine $line) => (int) $line->line_status === OrderLine::LINE_VOIDED
-        );
-
-        foreach ($settleLines as $line) {
+        foreach ($lines as $line) {
             $qty = (float) $line->qty;
             $price = (float) $line->price;
             $cost = (float) $line->cost;

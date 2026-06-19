@@ -104,6 +104,7 @@ Route::name('api.')->prefix('v1')->group(function () {
             Route::post('/{order}/rounds', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'rounds']);
             Route::post('/{order}/transfer-table', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'transferTable']);
             Route::post('/{order}/settle', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'settle']);
+            Route::post('/{order}/split-settle', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'splitSettle']);
             Route::post('/{order}/cancel', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'cancel']);
             Route::post('/{order}/lines/{line}/void', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'voidLine']);
         });

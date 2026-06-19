@@ -54,6 +54,7 @@ class RestaurantOrderController extends Controller
             'lines.*.notes' => ['nullable', 'string'],
             'lines.*.unit_id' => ['nullable', 'integer'],
             'lines.*.unit_qty' => ['nullable', 'numeric'],
+            'lines.*.seat' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $user = Auth::guard('api')->user();
@@ -85,6 +86,7 @@ class RestaurantOrderController extends Controller
             'lines.*.notes' => ['nullable', 'string'],
             'lines.*.unit_id' => ['nullable', 'integer'],
             'lines.*.unit_qty' => ['nullable', 'numeric'],
+            'lines.*.seat' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $order = $this->orders->addRound($order, $validated['lines']);
@@ -114,6 +116,58 @@ class RestaurantOrderController extends Controller
         $line = $this->orders->voidLine($line, Auth::guard('api')->id(), $validated['reason'] ?? null);
 
         return $this->success($line);
+    }
+
+    public function assignSeat(Request $request, Order $order, OrderLine $line): JsonResponse
+    {
+        abort_unless($line->order_id === $order->id, 404);
+
+        $validated = $request->validate([
+            'seat' => ['present', 'nullable', 'integer', 'min:1'],
+        ]);
+
+        try {
+            $line = $this->orders->assignSeat($line, $validated['seat']);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($line);
+    }
+
+    public function settleSeat(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'seats' => ['required', 'array', 'min:1'],
+            'seats.*' => ['integer'],
+            'payment_type' => ['required', 'integer'],
+            'cash' => ['nullable', 'numeric'],
+            'customer_id' => ['nullable', 'integer'],
+            'reference_number' => ['nullable', 'string'],
+            'bank_amount' => ['nullable', 'numeric'],
+            'bank_id' => ['nullable', 'integer'],
+        ]);
+
+        try {
+            $sale = $this->orders->settleSeats(
+                $order,
+                $validated['seats'],
+                $validated,
+                Auth::guard('api')->user()->user_id,
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        $order->refresh();
+
+        return $this->success([
+            'sale_id' => $sale->id,
+            'son' => $sale->son,
+            'total' => $sale->total,
+            'fully_settled' => $order->sales_id !== null,
+            'order_status' => $order->status,
+        ]);
     }
 
     public function settle(Request $request, Order $order): JsonResponse

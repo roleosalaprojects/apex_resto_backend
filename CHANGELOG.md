@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Restaurant POS] - 2026-06-19
 
+### Added — Bill by seat (Phase 6)
+- `order_lines.seat` assigns each line to a diner/seat (`NULL` =
+  unassigned); accepted per line when opening an order or adding a round.
+- `RestaurantOrderService::settleSeats()` bills every unsettled, non-voided
+  line for the given seat(s) onto one Sale — built on the same
+  `settleLines()` foundation as split bill, so the order completes and the
+  table frees only once all seats are paid.
+- `RestaurantOrderService::assignSeat()` reassigns a line's seat before it
+  is settled (settled lines are locked).
+- `POST /v1/restaurant-orders/{order}/settle-seat` (`seats[]` + payment)
+  and `POST /v1/restaurant-orders/{order}/lines/{line}/assign-seat`
+  (`seat`); both return `422` on a domain error (no billable lines for the
+  seat, or reassigning a settled line).
+
 ### Added — Split bill (Phase 5)
 - Per-line settlement: `order_lines.sales_id` links each line to the Sale
   that settled it (`NULL` = unsettled), so one order can produce multiple

@@ -113,6 +113,21 @@ class RestaurantOrderService
     }
 
     /**
+     * Assign (or clear) a line's seat before it is settled. Once a line is
+     * billed its seat is locked.
+     */
+    public function assignSeat(OrderLine $line, ?int $seat): OrderLine
+    {
+        if ($line->sales_id) {
+            throw new RuntimeException('Cannot reassign the seat of an already-settled line.');
+        }
+
+        $line->update(['seat' => $seat]);
+
+        return $line->refresh();
+    }
+
+    /**
      * Void a single line before the order is settled.
      */
     public function voidLine(OrderLine $line, ?int $userId = null, ?string $reason = null): OrderLine
@@ -169,6 +184,30 @@ class RestaurantOrderService
 
         if ($lines->count() !== count($lineIds)) {
             throw new RuntimeException('One or more selected lines are invalid, already settled, or voided.');
+        }
+
+        return $this->settleLines($order, $lines, $payment, $pos);
+    }
+
+    /**
+     * Bill-by-seat: settle every unsettled, non-voided line belonging to the
+     * given seat(s) onto one Sale. Like splitSettle but selecting by seat
+     * rather than explicit line ids.
+     *
+     * @param  array<int, int>  $seats
+     * @param  array<string, mixed>  $payment
+     */
+    public function settleSeats(Order $order, array $seats, array $payment, int $userId): Sale
+    {
+        $this->assertOpen($order);
+
+        $seats = array_values(array_unique(array_map('intval', $seats)));
+
+        $pos = Pos::with('store')->findOrFail($order->pos_id);
+        $lines = $this->unsettledLines($order)->whereIn('seat', $seats)->get();
+
+        if ($lines->isEmpty()) {
+            throw new RuntimeException('No unsettled lines for the selected seat(s).');
         }
 
         return $this->settleLines($order, $lines, $payment, $pos);
@@ -280,6 +319,7 @@ class RestaurantOrderService
                 'unit_id' => $line['unit_id'] ?? null,
                 'order_id' => $order->id,
                 'notes' => $line['notes'] ?? null,
+                'seat' => $line['seat'] ?? null,
                 'round' => $round,
                 'kitchen_station_id' => $this->routing->resolveStation($item),
                 'line_status' => OrderLine::LINE_QUEUED,

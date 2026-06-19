@@ -105,8 +105,10 @@ Route::name('api.')->prefix('v1')->group(function () {
             Route::post('/{order}/transfer-table', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'transferTable']);
             Route::post('/{order}/settle', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'settle']);
             Route::post('/{order}/split-settle', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'splitSettle']);
+            Route::post('/{order}/settle-seat', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'settleSeat']);
             Route::post('/{order}/cancel', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'cancel']);
             Route::post('/{order}/lines/{line}/void', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'voidLine']);
+            Route::post('/{order}/lines/{line}/assign-seat', [\App\Http\Controllers\API\v1\pos\RestaurantOrderController::class, 'assignSeat']);
         });
 
         // Kitchen Display System (polling)

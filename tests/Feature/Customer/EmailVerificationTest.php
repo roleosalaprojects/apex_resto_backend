@@ -3,10 +3,14 @@
 namespace Tests\Feature\Customer;
 
 use App\Models\CustomerRelations\Customer;
+use App\Models\Employees\Role;
+use App\Models\Settings\BrandingSetting;
+use App\Models\User;
 use App\Notifications\Customer\VerifyEmailNotification;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
@@ -148,8 +152,20 @@ class EmailVerificationTest extends TestCase
         $response->assertRedirect(route('customer.login'));
     }
 
-    public function test_verification_email_uses_quick_baskets_branding(): void
+    public function test_verification_email_uses_the_storefront_branding(): void
     {
+        // Storefront branding resolves from the first active self-owned
+        // tenant's BrandingSetting (falling back to APEX). Seed one so the
+        // brand demonstrably flows into the subject and body.
+        $role = Role::factory()->admin()->create();
+        $owner = User::factory()->create(['role_id' => $role->id, 'status' => true]);
+        $owner->update(['user_id' => $owner->id]);
+        BrandingSetting::factory()->create([
+            'user_id' => $owner->id,
+            'brand_name' => 'Quick Baskets',
+        ]);
+        Cache::forget('branding.storefront');
+
         $customer = Customer::factory()->unverified()->create();
 
         $notification = new VerifyEmailNotification;

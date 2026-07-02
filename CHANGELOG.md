@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Restaurant POS] - 2026-07-02
 
+### Fixed — Test suite green (stale tests updated to current behaviour)
+- Root `/` tests now assert the intentional `301 → /shop` redirect;
+  customer API registration test supplies the required SMS OTP (dev
+  mode) and terms acceptance; email-verification branding test seeds a
+  tenant `BrandingSetting` instead of assuming the source fork's brand;
+  POS ecommerce-orders list test expects cancelled orders (full
+  lifecycle is shown, informational); wholesale-tier ordering test reads
+  the `data.tiers` wrapper; reorder-alert tests trigger the scheduled
+  `notifications:fire-alerts` command, where alert pushes actually live
+  now. Full suite: 0 failures.
+
+### Changed
+- Postman collection documents the Phase 5–8 settlement API: Split
+  Settle, Settle Seat(s), Assign Seat requests and the `payments[]` /
+  pax / SC-PWD / beneficiary fields on Settle.
+
 ### Added — Per-receipt pax & SC/PWD group discount (Phase 8)
 - Settlement payloads (`settle`, `split-settle`, `settle-seat`) accept
   per-receipt `pax` / `sc_count` / `pwd_count` plus beneficiary identity

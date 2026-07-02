@@ -105,6 +105,14 @@ class AuthControllerTest extends TestCase
 
     public function test_customer_can_register_via_api(): void
     {
+        // Registration requires an SMS OTP + accepted terms. Run the OTP
+        // service in dev mode (no VeroSMS relay) so sendOtp returns the
+        // code directly.
+        config(['services.verosms.base_url' => null]);
+        $otp = $this->postJson(route('customer.register.send-otp'), [
+            'phone' => '09171234567',
+        ])->assertStatus(200)->json('dev_code');
+
         $response = $this->postJson('/api/v1/customer/register', [
             'name' => 'John Doe',
             'email' => 'newcustomer@example.com',
@@ -112,6 +120,8 @@ class AuthControllerTest extends TestCase
             'address' => '123 Test Street',
             'password' => 'password123',
             'password_confirmation' => 'password123',
+            'terms' => true,
+            'otp' => $otp,
         ]);
 
         $response->assertStatus(201)

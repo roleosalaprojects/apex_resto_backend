@@ -177,7 +177,7 @@ class WholesalePriceTierTest extends TestCase
 
         $response->assertOk();
 
-        $data = $response->json();
+        $data = $response->json('data.tiers');
         $this->assertEquals(1, $data[0]['min_qty']);
         $this->assertEquals(12, $data[1]['min_qty']);
         $this->assertEquals(50, $data[2]['min_qty']);

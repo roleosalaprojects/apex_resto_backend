@@ -80,10 +80,13 @@ class ReorderAlertNotificationTest extends TestCase
                 ->andReturn(1);
         });
 
-        $service = app(DemandForecastService::class);
-        $suggestions = $service->generateReorderSuggestions($this->owner->id, $this->store->id);
-
+        // Alert pushes fire from the scheduled command, not from the
+        // forecast read path (render-time pushes were notification spam).
+        $suggestions = app(DemandForecastService::class)
+            ->generateReorderSuggestions($this->owner->id, $this->store->id);
         $this->assertTrue($suggestions->isNotEmpty());
+
+        $this->artisan('notifications:fire-alerts')->assertSuccessful();
     }
 
     public function test_no_notification_for_low_urgency_only(): void
@@ -116,7 +119,6 @@ class ReorderAlertNotificationTest extends TestCase
             $mock->shouldNotReceive('sendToUsersWithPermission');
         });
 
-        $service = app(DemandForecastService::class);
-        $service->generateReorderSuggestions($this->owner->id, $this->store->id);
+        $this->artisan('notifications:fire-alerts')->assertSuccessful();
     }
 }

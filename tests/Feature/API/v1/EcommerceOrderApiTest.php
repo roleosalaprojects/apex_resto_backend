@@ -47,10 +47,11 @@ class EcommerceOrderApiTest extends TestCase
             'status' => 0,
         ]);
 
-        // Cancelled orders stay hidden.
+        // Cancelled orders are surfaced too — the POS queue shows the
+        // full lifecycle (informational; tap actions stay Verified-only).
         EcommerceOrder::factory()->create([
             'customer_id' => $this->customer->id,
-            'status' => 2,
+            'status' => EcommerceOrder::STATUS_CANCELLED,
         ]);
 
         Passport::actingAs($this->user);
@@ -58,8 +59,8 @@ class EcommerceOrderApiTest extends TestCase
         $response = $this->getJson('/api/v1/ecommerce-orders');
 
         $response->assertStatus(200);
-        // Response is paginated — 2 verified + 1 pending = 3, cancelled excluded.
-        $response->assertJsonCount(3, 'data.data');
+        // Response is paginated — 2 verified + 1 pending + 1 cancelled = 4.
+        $response->assertJsonCount(4, 'data.data');
     }
 
     public function test_can_view_single_ecommerce_order(): void

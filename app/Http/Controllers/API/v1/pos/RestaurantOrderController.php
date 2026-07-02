@@ -137,13 +137,15 @@ class RestaurantOrderController extends Controller
     }
 
     /**
-     * Payment payload rules shared by the settle endpoints. Single-tender
+     * Settlement payload rules shared by the settle endpoints. Single-tender
      * sends payment_type (+ cash/reference/bank fields); multi-tender sends
      * payments[] (two or more tenders — credit and cheque excluded) instead.
+     * Declaring pax with sc_count/pwd_count computes the RMC 38-2012 SC/PWD
+     * group discount server-side for this receipt.
      *
      * @return array<string, mixed>
      */
-    private function paymentRules(): array
+    private function settlementRules(): array
     {
         return [
             'payment_type' => ['required_without:payments', 'integer'],
@@ -157,6 +159,12 @@ class RestaurantOrderController extends Controller
             'payments.*.amount' => ['required', 'numeric', 'min:0.01'],
             'payments.*.reference_number' => ['nullable', 'string'],
             'payments.*.bank_id' => ['nullable', 'integer', 'exists:banks,id'],
+            'pax' => ['nullable', 'integer', 'min:1'],
+            'sc_count' => ['nullable', 'integer', 'min:0'],
+            'pwd_count' => ['nullable', 'integer', 'min:0'],
+            'special_discount_name' => ['nullable', 'string'],
+            'special_discount_id' => ['nullable', 'string'],
+            'special_discount_tin' => ['nullable', 'string'],
         ];
     }
 
@@ -165,7 +173,7 @@ class RestaurantOrderController extends Controller
         $validated = $request->validate(array_merge([
             'seats' => ['required', 'array', 'min:1'],
             'seats.*' => ['integer'],
-        ], $this->paymentRules()));
+        ], $this->settlementRules()));
 
         try {
             $sale = $this->orders->settleSeats(
@@ -191,7 +199,7 @@ class RestaurantOrderController extends Controller
 
     public function settle(Request $request, Order $order): JsonResponse
     {
-        $validated = $request->validate($this->paymentRules());
+        $validated = $request->validate($this->settlementRules());
 
         try {
             $sale = $this->orders->settle($order, $validated, Auth::guard('api')->user()->user_id);
@@ -211,7 +219,7 @@ class RestaurantOrderController extends Controller
         $validated = $request->validate(array_merge([
             'line_ids' => ['required', 'array', 'min:1'],
             'line_ids.*' => ['integer'],
-        ], $this->paymentRules()));
+        ], $this->settlementRules()));
 
         try {
             $sale = $this->orders->splitSettle(

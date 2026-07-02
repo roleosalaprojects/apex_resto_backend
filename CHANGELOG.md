@@ -8,6 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Restaurant POS] - 2026-07-02
 
+### Added — Per-receipt pax & SC/PWD group discount (Phase 8)
+- Settlement payloads (`settle`, `split-settle`, `settle-seat`) accept
+  per-receipt `pax` / `sc_count` / `pwd_count` plus beneficiary identity
+  (`special_discount_name` / `special_discount_id` /
+  `special_discount_tin`). Payload values win; a receipt that bills the
+  whole order still inherits the order header, but partial (split/seat)
+  receipts no longer copy it — that copy overstated BIR SC/PWD counts
+  on every receipt of a split bill.
+- Declaring `pax` + beneficiaries in the settlement payload computes the
+  RMC 38-2012 SC/PWD group discount server-side via the existing
+  `DiscountAllocationService`: the beneficiaries' share of the
+  VAT-inclusive bill is VAT-stripped into `vat_exempt` and discounted
+  20%, `total` becomes the net due, and the discount splits across
+  `sc_discount` / `pwd_discount` by headcount. Billing a senior's own
+  seat with `pax: 1, sc_count: 1` makes their discount exact instead of
+  prorated. No declaration → no discount (unchanged behaviour).
+- The discount resolves before tender resolution, so cash change and
+  multi-tender validation run against the discounted amount due.
+- Beneficiaries exceeding pax, or declared without pax, return `422`.
+- `GroupDiscountSettlementTest` covers the allocation maths, exact
+  per-seat billing, header-copy rules, multi-tender interplay, SC/PWD
+  splits, reject paths and the X-reading discount buckets.
+
 ### Added — Multi-tender settlement (Phase 7)
 - One receipt can now be paid with several tenders (e.g. cash + card +
   e-wallet). The `settle`, `split-settle` and `settle-seat` endpoints

@@ -10,6 +10,7 @@ use App\Models\Pos\Sale;
 use App\Models\Settings\Pos;
 use App\Models\Settings\Store;
 use App\Models\User;
+use App\Services\DiscountAllocationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -332,12 +333,20 @@ final readonly class SaleCreationData
      * settlement that's every unsettled, non-voided line; for a split bill
      * it's the selected subset — each subset becomes its own official SI.
      *
-     * VAT split is kept simple here (vatable lines → vatable+vat, others →
-     * vat_exempt); BIR Annex F group-discount/VAT refinement lands in the
-     * next phase via DiscountAllocationService.
+     * VAT split is per line (vatable lines → vatable+vat, others →
+     * vat_exempt). Declaring pax + sc_count/pwd_count in the payment
+     * payload computes the RMC 38-2012 SC/PWD group discount server-side
+     * for this receipt; without a declaration no discount applies.
+     *
+     * Receipt headcounts (pax/sc_count/pwd_count) come from the payload
+     * when given; otherwise a receipt that bills the whole order inherits
+     * the order header, while a partial (split/seat) receipt carries none —
+     * copying the header onto every split receipt would overstate the BIR
+     * SC/PWD counts.
      *
      * @param  iterable<int, OrderLine>  $lines  lines to bill on this receipt (item relation preloaded)
-     * @param  array<string, mixed>  $payment  payment_type/cash/change/reference/bank fields
+     * @param  array<string, mixed>  $payment  payment_type/cash/payments/pax/sc-pwd/reference/bank fields
+     * @param  bool  $coversWholeOrder  true when this receipt bills every non-voided line of the order
      */
     public static function fromRestaurantOrder(
         Order $order,
@@ -346,6 +355,7 @@ final readonly class SaleCreationData
         int|string $sonType,
         iterable $lines,
         array $payment,
+        bool $coversWholeOrder = true,
     ): self {
         $now = Carbon::now();
 
@@ -414,16 +424,58 @@ final readonly class SaleCreationData
             ? $creditableTotal * (float) $customer->points
             : 0;
 
+        $pax = $payment['pax'] ?? ($coversWholeOrder ? $order->pax : null);
+        $scCount = $payment['sc_count'] ?? ($coversWholeOrder ? $order->sc_count : null);
+        $pwdCount = $payment['pwd_count'] ?? ($coversWholeOrder ? $order->pwd_count : null);
+
+        $scDiscount = 0.0;
+        $pwdDiscount = 0.0;
+        $vatSpecialDiscounts = 0.0;
+        $specialDiscountType = 0;
+        $amountDue = $total;
+
+        $declaredPax = (int) ($payment['pax'] ?? 0);
+        $declaredSc = (int) ($payment['sc_count'] ?? 0);
+        $declaredBeneficiaries = $declaredSc + (int) ($payment['pwd_count'] ?? 0);
+
+        if ($declaredBeneficiaries > 0) {
+            if ($declaredPax < 1) {
+                throw new RuntimeException('pax is required when declaring SC/PWD beneficiaries.');
+            }
+            if ($declaredBeneficiaries > $declaredPax) {
+                throw new RuntimeException('SC/PWD beneficiary count cannot exceed pax.');
+            }
+
+            $allocation = app(DiscountAllocationService::class)
+                ->allocateGroupDiscount(round($total, 2), $declaredPax, $declaredBeneficiaries);
+
+            // The beneficiaries' share leaves the VAT base (RMC 38-2012):
+            // scale the receipt's VAT splits by the non-beneficiary fraction
+            // and land the share, net of the VAT removed, in vat_exempt.
+            $remainingFraction = 1 - ($declaredBeneficiaries / $declaredPax);
+            $vatableTotal *= $remainingFraction;
+            $vatTotal *= $remainingFraction;
+            $exemptTotal = $exemptTotal * $remainingFraction + $allocation['vat_exempt_sales'];
+
+            $scDiscount = $declaredSc > 0
+                ? round($allocation['discount_amount'] * $declaredSc / $declaredBeneficiaries, 2)
+                : 0.0;
+            $pwdDiscount = round($allocation['discount_amount'] - $scDiscount, 2);
+            $vatSpecialDiscounts = $allocation['vat_amount_removed'];
+            $specialDiscountType = $declaredSc > 0 ? 1 : 2;
+            $amountDue = $allocation['net_due'];
+        }
+
         $paymentType = (int) ($payment['payment_type'] ?? Sale::PAYMENT_CASH);
         $referenceNumber = $payment['reference_number'] ?? null;
         $bankAmount = $payment['bank_amount'] ?? null;
         $bankId = $payment['bank_id'] ?? null;
-        $cash = (float) ($payment['cash'] ?? $total);
-        $change = max(0, $cash - $total);
+        $cash = (float) ($payment['cash'] ?? $amountDue);
+        $change = max(0, $cash - $amountDue);
         $tenderRows = [];
 
         if (! empty($payment['payments']) && is_array($payment['payments'])) {
-            [$tenderRows, $cash, $change] = self::resolveTenders($payment['payments'], round($total, 2), $now);
+            [$tenderRows, $cash, $change] = self::resolveTenders($payment['payments'], round($amountDue, 2), $now);
             $paymentType = Sale::PAYMENT_MULTI;
             // Per-tender reference/bank data lives on the sale_payments rows.
             $referenceNumber = null;
@@ -438,7 +490,7 @@ final readonly class SaleCreationData
             'reference_number' => $referenceNumber,
             'bank_amount' => $bankAmount,
             'bank_id' => $bankId,
-            'total' => $total,
+            'total' => $amountDue,
             'cash' => $cash,
             'change' => $change,
             'header' => $pos->store->header ?? null,
@@ -446,9 +498,9 @@ final readonly class SaleCreationData
             'type' => false,
             'order_type' => (int) ($order->order_type ?? Order::TYPE_DINE_IN),
             'table_id' => $order->table_id,
-            'pax' => $order->pax,
-            'sc_count' => $order->sc_count,
-            'pwd_count' => $order->pwd_count,
+            'pax' => $pax,
+            'sc_count' => $scCount,
+            'pwd_count' => $pwdCount,
             'sales_by' => Auth::guard('api')->id() ?? $order->waiter_id ?? $order->user_id,
             'pos_id' => $pos->id,
             'store_id' => $pos->store_id,
@@ -466,15 +518,15 @@ final readonly class SaleCreationData
             'approved_by' => null,
             'sale_id' => 0,
             'sale_type' => false,
-            'sc_discount' => 0,
-            'pwd_discount' => 0,
+            'sc_discount' => $scDiscount,
+            'pwd_discount' => $pwdDiscount,
             'sp_discount' => 0,
             'naac_discount' => 0,
-            'vat_special_discounts' => 0,
-            'special_discount_type' => 0,
-            'special_discount_name' => null,
-            'special_discount_id' => null,
-            'special_discount_tin' => null,
+            'vat_special_discounts' => $vatSpecialDiscounts,
+            'special_discount_type' => $specialDiscountType,
+            'special_discount_name' => $payment['special_discount_name'] ?? null,
+            'special_discount_id' => $payment['special_discount_id'] ?? null,
+            'special_discount_tin' => $payment['special_discount_tin'] ?? null,
             'customer_id' => $payment['customer_id'] ?? null,
             'acquired_points' => $earnedPoints,
             'points_used' => 0,

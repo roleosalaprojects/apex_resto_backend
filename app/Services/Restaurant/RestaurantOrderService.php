@@ -228,7 +228,10 @@ class RestaurantOrderService
 
             $lines->loadMissing('item:id,cost,creditable_to_points,vatable');
 
-            $data = SaleCreationData::fromRestaurantOrder($order, $pos, $counter, $sonType, $lines, $payment);
+            $coversWholeOrder = $order->lines()->whereNotNull('sales_id')->doesntExist()
+                && $lines->count() === $this->unsettledLines($order)->count();
+
+            $data = SaleCreationData::fromRestaurantOrder($order, $pos, $counter, $sonType, $lines, $payment, $coversWholeOrder);
             $sale = $this->saleCreation->create($data);
 
             OrderLine::whereIn('id', $lines->pluck('id'))->update(['sales_id' => $sale->id]);

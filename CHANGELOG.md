@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Restaurant POS] - 2026-07-02
+
+### Added — Multi-tender settlement (Phase 7)
+- One receipt can now be paid with several tenders (e.g. cash + card +
+  e-wallet). The `settle`, `split-settle` and `settle-seat` endpoints
+  accept a `payments[]` array (two or more of `{payment_type, amount,
+  reference_number?, bank_id?}`) in place of the single `payment_type`.
+- New `sale_payments` table stores the per-tender APPLIED amounts — change
+  is only ever given from cash and never lands in a row — so each sale's
+  rows sum exactly to its total and per-tender readings reconcile against
+  gross sales. The sale itself carries `payment_type = 8 (PAYMENT_MULTI)`.
+- Credit and cheque are excluded from multi-tender (both drive
+  single-tender ledger workflows: credit-balance charge, cheque clearing);
+  tenders must cover the total, non-cash tenders can't exceed it, and
+  domain violations return `422`.
+- Per-tender bucketing folds multi-tender portions into the X reading
+  (`apexReading`), the Z reading Annex F tender columns and the daily BI
+  store metrics; each e-wallet/bank tender deposits its own
+  `BankTransaction` at the tender's applied amount. Legacy single-tender
+  aggregation paths are untouched, so existing readings can't shift.
+- Receipt views now label payment types 4–7 correctly (previously fell
+  back to "Cash") and print the tender breakdown + change on split-tender
+  receipts.
+- `MultiTenderTest` covers the breakdown, change-from-cash, bank deposits,
+  split/seat variants, reject paths and X/Z/daily-aggregation folding.
+
 ## [Restaurant POS] - 2026-06-19
 
 ### Added — Bill by seat (Phase 6)

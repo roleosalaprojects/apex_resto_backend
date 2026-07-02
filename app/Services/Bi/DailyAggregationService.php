@@ -8,6 +8,7 @@ use App\Models\Bi\DailyItemMetric;
 use App\Models\Bi\DailyStoreMetric;
 use App\Models\Pos\Sale;
 use App\Models\Pos\SaleLine;
+use App\Models\Pos\SalePayment;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -132,6 +133,27 @@ class DailyAggregationService
             ->groupBy('user_id', 'store_id', DB::raw('DATE(created_at)'))
             ->get();
 
+        // Multi-tender sales carry payment_type = PAYMENT_MULTI and land in
+        // no tender bucket above; aggregate their per-tender applied
+        // amounts so they can be folded into the matching *_total columns.
+        // Only tender types with a daily bucket are folded — card and
+        // gift-cert have none, exactly as for single-tender sales.
+        $multiTenders = SalePayment::query()
+            ->join('sales', 'sales.id', '=', 'sale_payments.sales_id')
+            ->where('sales.cancelled', 0)
+            ->where('sales.payment_type', Sale::PAYMENT_MULTI)
+            ->whereBetween('sales.created_at', [$start, $end])
+            ->when($userId, fn ($query) => $query->where('sales.user_id', $userId))
+            ->select(
+                'sales.user_id',
+                'sales.store_id',
+                DB::raw('DATE(sales.created_at) as date'),
+                'sale_payments.payment_type',
+                DB::raw('SUM(IF(sales.type = 0, sale_payments.amount, -sale_payments.amount)) as amount'),
+            )
+            ->groupBy('sales.user_id', 'sales.store_id', DB::raw('DATE(sales.created_at)'), 'sale_payments.payment_type')
+            ->get();
+
         $cogs = SaleLine::query()
             ->join('sales as s', 's.id', '=', 'sale_lines.sales_id')
             ->where('s.cancelled', 0)
@@ -193,6 +215,23 @@ class DailyAggregationService
                 'refund_count' => (int) $row->refund_count,
                 'ecommerce_transactions' => (int) $row->ecommerce_transactions,
             ]);
+        }
+
+        $tenderBucketColumns = [
+            Sale::PAYMENT_CASH => 'cash_total',
+            Sale::PAYMENT_EWALLET => 'ewallet_total',
+            Sale::PAYMENT_BANK_TRANSFER => 'bank_transfer_total',
+        ];
+
+        foreach ($multiTenders as $row) {
+            $column = $tenderBucketColumns[(int) $row->payment_type] ?? null;
+            if (! $column) {
+                continue;
+            }
+
+            $key = $row->user_id.'|'.$row->store_id.'|'.$row->date;
+            $rows[$key] ??= $this->storeRowDefaults((int) $row->user_id, (int) $row->store_id, $row->date);
+            $rows[$key][$column] = round(($rows[$key][$column] ?? 0) + (float) $row->amount, 2);
         }
 
         foreach ($cogs as $row) {

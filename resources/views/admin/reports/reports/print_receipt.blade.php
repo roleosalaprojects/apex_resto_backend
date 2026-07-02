@@ -363,6 +363,11 @@
                     @case(1) Cash @break
                     @case(2) E-Wallet @break
                     @case(3) Credit @break
+                    @case(4) Bank Transfer @break
+                    @case(5) Cheque @break
+                    @case(6) Card @break
+                    @case(7) Gift Certificate @break
+                    @case(8) Split Tender @break
                     @default Cash
                 @endswitch
             </div>
@@ -419,12 +424,29 @@
         </table>
     </div>
 
-    {{-- Payment detail (cash + change only for cash sales) --}}
+    {{-- Payment detail (cash sales show tendered/change; split-tender sales show the per-tender breakdown) --}}
     @if((int) $sale->payment_type === 1)
         <div class="payment-block">
             <div class="left">
                 <h3>Tendered</h3>
                 <div class="row"><span>Cash</span><span class="v">₱ {{ number_format($sale->cash, 2) }}</span></div>
+                <div class="row"><span>Change</span><span class="v">₱ {{ number_format($sale->change, 2) }}</span></div>
+            </div>
+        </div>
+    @elseif((int) $sale->payment_type === 8)
+        @php
+            $tenderLabels = [1 => 'Cash', 2 => 'E-Wallet', 4 => 'Bank Transfer', 6 => 'Card', 7 => 'Gift Certificate'];
+        @endphp
+        <div class="payment-block">
+            <div class="left">
+                <h3>Tendered</h3>
+                @foreach($sale->payments as $tender)
+                    <div class="row">
+                        <span>{{ $tenderLabels[(int) $tender->payment_type] ?? 'Other' }}{{ $tender->reference_number ? ' · '.$tender->reference_number : '' }}</span>
+                        {{-- Cash rows store the applied amount; show what was handed over instead. --}}
+                        <span class="v">₱ {{ number_format((int) $tender->payment_type === 1 ? $sale->cash : $tender->amount, 2) }}</span>
+                    </div>
+                @endforeach
                 <div class="row"><span>Change</span><span class="v">₱ {{ number_format($sale->change, 2) }}</span></div>
             </div>
         </div>

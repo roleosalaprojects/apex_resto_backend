@@ -13,6 +13,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use RuntimeException;
 
 /**
  * Read-only payload for SaleCreationService.
@@ -30,6 +31,7 @@ final readonly class SaleCreationData
     /**
      * @param  array<string, mixed>  $saleAttributes  payload for Sale::create
      * @param  array<int, array<string, mixed>>  $saleLineRows  payload for SaleLine::insert (sales_id appended by the service)
+     * @param  array<int, array<string, mixed>>  $tenderRows  payload for SalePayment::insert on a multi-tender sale (sales_id appended by the service); empty for single-tender
      */
     public function __construct(
         public array $saleAttributes,
@@ -37,6 +39,7 @@ final readonly class SaleCreationData
         public ?Customer $customer,
         public float $earnedPoints,
         public float $pointsUsed,
+        public array $tenderRows = [],
     ) {}
 
     /**
@@ -411,18 +414,33 @@ final readonly class SaleCreationData
             ? $creditableTotal * (float) $customer->points
             : 0;
 
+        $paymentType = (int) ($payment['payment_type'] ?? Sale::PAYMENT_CASH);
+        $referenceNumber = $payment['reference_number'] ?? null;
+        $bankAmount = $payment['bank_amount'] ?? null;
+        $bankId = $payment['bank_id'] ?? null;
         $cash = (float) ($payment['cash'] ?? $total);
+        $change = max(0, $cash - $total);
+        $tenderRows = [];
+
+        if (! empty($payment['payments']) && is_array($payment['payments'])) {
+            [$tenderRows, $cash, $change] = self::resolveTenders($payment['payments'], round($total, 2), $now);
+            $paymentType = Sale::PAYMENT_MULTI;
+            // Per-tender reference/bank data lives on the sale_payments rows.
+            $referenceNumber = null;
+            $bankAmount = null;
+            $bankId = null;
+        }
 
         $saleAttributes = [
             'counter' => $counter,
             'son' => $sonType.'-'.$counter.'-'.$pos->id,
-            'payment_type' => (int) ($payment['payment_type'] ?? Sale::PAYMENT_CASH),
-            'reference_number' => $payment['reference_number'] ?? null,
-            'bank_amount' => $payment['bank_amount'] ?? null,
-            'bank_id' => $payment['bank_id'] ?? null,
+            'payment_type' => $paymentType,
+            'reference_number' => $referenceNumber,
+            'bank_amount' => $bankAmount,
+            'bank_id' => $bankId,
             'total' => $total,
             'cash' => $cash,
-            'change' => max(0, $cash - $total),
+            'change' => $change,
             'header' => $pos->store->header ?? null,
             'footer' => $pos->store->footer ?? null,
             'type' => false,
@@ -472,6 +490,85 @@ final readonly class SaleCreationData
             customer: $customer,
             earnedPoints: (float) $earnedPoints,
             pointsUsed: 0.0,
+            tenderRows: $tenderRows,
         );
+    }
+
+    /**
+     * Validate a multi-tender payment set against the receipt total and
+     * shape the sale_payments rows. Non-cash tenders apply at face value
+     * and may not exceed the total — change is only ever given from cash —
+     * so the rows' APPLIED amounts always sum exactly to the sale total
+     * (all cash tenders fold into one row net of change). Mismatches beyond
+     * ±0.01 are rejected, mirroring the DiscountAllocationService tolerance.
+     *
+     * @param  array<int, array<string, mixed>>  $payments  [{payment_type, amount, reference_number?, bank_id?}]
+     * @return array{0: array<int, array<string, mixed>>, 1: float, 2: float} [tender rows, cash tendered, change]
+     */
+    private static function resolveTenders(array $payments, float $total, Carbon $now): array
+    {
+        if (count($payments) < 2) {
+            throw new RuntimeException('Multi-tender payment needs at least two tenders; use payment_type for a single tender.');
+        }
+
+        $cashTendered = 0.0;
+        $nonCashTotal = 0.0;
+        $rows = [];
+
+        foreach ($payments as $tender) {
+            $type = (int) ($tender['payment_type'] ?? 0);
+            $amount = round((float) ($tender['amount'] ?? 0), 2);
+
+            if (! in_array($type, Sale::MULTI_TENDER_TYPES, true)) {
+                throw new RuntimeException('Tender type '.$type.' cannot be part of a multi-tender payment.');
+            }
+            if ($amount <= 0) {
+                throw new RuntimeException('Every tender amount must be greater than zero.');
+            }
+
+            if ($type === Sale::PAYMENT_CASH) {
+                $cashTendered += $amount;
+
+                continue;
+            }
+
+            $nonCashTotal += $amount;
+            $rows[] = [
+                'payment_type' => $type,
+                'amount' => $amount,
+                'reference_number' => $tender['reference_number'] ?? null,
+                'bank_id' => $tender['bank_id'] ?? null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        $nonCashTotal = round($nonCashTotal, 2);
+
+        if ($nonCashTotal - $total > 0.01) {
+            throw new RuntimeException('Non-cash tenders exceed the amount due — change can only be given from cash.');
+        }
+        if ($total - ($cashTendered + $nonCashTotal) > 0.01) {
+            throw new RuntimeException('Tendered amounts do not cover the amount due.');
+        }
+
+        $change = round(max(0.0, $cashTendered + $nonCashTotal - $total), 2);
+        $appliedCash = round($total - $nonCashTotal, 2);
+
+        if ($cashTendered > 0 && $appliedCash > 0) {
+            $rows[] = [
+                'payment_type' => Sale::PAYMENT_CASH,
+                'amount' => $appliedCash,
+                'reference_number' => null,
+                'bank_id' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        } elseif ($rows !== []) {
+            $lastIndex = array_key_last($rows);
+            $rows[$lastIndex]['amount'] = round($rows[$lastIndex]['amount'] + ($total - $nonCashTotal), 2);
+        }
+
+        return [$rows, round($cashTendered, 2), $change];
     }
 }

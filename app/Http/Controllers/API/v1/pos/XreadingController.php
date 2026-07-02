@@ -7,6 +7,7 @@ use App\Http\Requests\XReading\StoreRequest;
 use App\Http\Traits\ApiResponse;
 use App\Jobs\API\v1\PosLog\PosLogJob;
 use App\Models\Accounting\PosLog;
+use App\Models\Pos\Sale;
 use App\Models\Pos\Xreading;
 use App\Models\Pos\Zreading;
 use App\Models\Settings\Pos;
@@ -162,6 +163,40 @@ class XreadingController extends Controller
             "WHERE pos_id = ? AND is_training = 0 AND cancelled = 0 AND z_reading_id IS NULL $userFilter",
             array_merge([$posId], $userParams, [$posId], $userParams, [$posId], $userParams, [$posId], $userParams)
         );
+
+        // Multi-tender sales carry payment_type = PAYMENT_MULTI, so the
+        // per-tender buckets above skip them. Fold each tender's applied
+        // amount into its bucket from sale_payments, mirroring the main
+        // query's filters (open, official, non-void, forward sales).
+        $multiTenderTotals = DB::table('sale_payments')
+            ->join('sales', 'sales.id', '=', 'sale_payments.sales_id')
+            ->where('sales.pos_id', $posId)
+            ->where('sales.payment_type', Sale::PAYMENT_MULTI)
+            ->where('sales.type', 0)
+            ->where('sales.is_training', 0)
+            ->where('sales.cancelled', 0)
+            ->whereNull('sales.z_reading_id')
+            ->when($userScope, fn ($q) => $q->where('sales.sales_by', $userId))
+            ->groupBy('sale_payments.payment_type')
+            ->selectRaw('sale_payments.payment_type as payment_type, SUM(sale_payments.amount) as amount')
+            ->pluck('amount', 'payment_type');
+
+        if (! empty($reading) && $multiTenderTotals->isNotEmpty()) {
+            $tenderBuckets = [
+                Sale::PAYMENT_CASH => 'cash',
+                Sale::PAYMENT_EWALLET => 'e_wallet',
+                Sale::PAYMENT_BANK_TRANSFER => 'bank_transfer',
+                Sale::PAYMENT_CHEQUE => 'cheque',
+                Sale::PAYMENT_CARD => 'card',
+                Sale::PAYMENT_GIFT_CERT => 'gift_cert',
+            ];
+            foreach ($tenderBuckets as $tenderType => $bucket) {
+                if (isset($multiTenderTotals[$tenderType])) {
+                    $reading[0]->$bucket = round((float) $reading[0]->$bucket + (float) $multiTenderTotals[$tenderType], 2);
+                }
+            }
+        }
+
         $previous_accumulated_sales = 0;
         if ($request->type) {
             $zreadingLatest = Zreading::where('pos_id', $pos->id)->latest()->first();

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Traits\ApiResponse;
 use App\Models\Pos\Order;
 use App\Models\Pos\OrderLine;
+use App\Models\Pos\Sale;
 use App\Services\Restaurant\RestaurantOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -135,18 +136,36 @@ class RestaurantOrderController extends Controller
         return $this->success($line);
     }
 
-    public function settleSeat(Request $request, Order $order): JsonResponse
+    /**
+     * Payment payload rules shared by the settle endpoints. Single-tender
+     * sends payment_type (+ cash/reference/bank fields); multi-tender sends
+     * payments[] (two or more tenders — credit and cheque excluded) instead.
+     *
+     * @return array<string, mixed>
+     */
+    private function paymentRules(): array
     {
-        $validated = $request->validate([
-            'seats' => ['required', 'array', 'min:1'],
-            'seats.*' => ['integer'],
-            'payment_type' => ['required', 'integer'],
+        return [
+            'payment_type' => ['required_without:payments', 'integer'],
             'cash' => ['nullable', 'numeric'],
             'customer_id' => ['nullable', 'integer'],
             'reference_number' => ['nullable', 'string'],
             'bank_amount' => ['nullable', 'numeric'],
             'bank_id' => ['nullable', 'integer'],
-        ]);
+            'payments' => ['sometimes', 'array', 'min:2'],
+            'payments.*.payment_type' => ['required', 'integer', Rule::in(Sale::MULTI_TENDER_TYPES)],
+            'payments.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'payments.*.reference_number' => ['nullable', 'string'],
+            'payments.*.bank_id' => ['nullable', 'integer', 'exists:banks,id'],
+        ];
+    }
+
+    public function settleSeat(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate(array_merge([
+            'seats' => ['required', 'array', 'min:1'],
+            'seats.*' => ['integer'],
+        ], $this->paymentRules()));
 
         try {
             $sale = $this->orders->settleSeats(
@@ -172,16 +191,13 @@ class RestaurantOrderController extends Controller
 
     public function settle(Request $request, Order $order): JsonResponse
     {
-        $validated = $request->validate([
-            'payment_type' => ['required', 'integer'],
-            'cash' => ['nullable', 'numeric'],
-            'customer_id' => ['nullable', 'integer'],
-            'reference_number' => ['nullable', 'string'],
-            'bank_amount' => ['nullable', 'numeric'],
-            'bank_id' => ['nullable', 'integer'],
-        ]);
+        $validated = $request->validate($this->paymentRules());
 
-        $sale = $this->orders->settle($order, $validated, Auth::guard('api')->user()->user_id);
+        try {
+            $sale = $this->orders->settle($order, $validated, Auth::guard('api')->user()->user_id);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
 
         return $this->success([
             'sale_id' => $sale->id,
@@ -192,16 +208,10 @@ class RestaurantOrderController extends Controller
 
     public function splitSettle(Request $request, Order $order): JsonResponse
     {
-        $validated = $request->validate([
+        $validated = $request->validate(array_merge([
             'line_ids' => ['required', 'array', 'min:1'],
             'line_ids.*' => ['integer'],
-            'payment_type' => ['required', 'integer'],
-            'cash' => ['nullable', 'numeric'],
-            'customer_id' => ['nullable', 'integer'],
-            'reference_number' => ['nullable', 'string'],
-            'bank_amount' => ['nullable', 'numeric'],
-            'bank_id' => ['nullable', 'integer'],
-        ]);
+        ], $this->paymentRules()));
 
         try {
             $sale = $this->orders->splitSettle(

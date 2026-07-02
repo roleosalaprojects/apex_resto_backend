@@ -335,10 +335,25 @@ class ZreadingController extends Controller
 
         $valid = (clone $base)->where('cancelled', false);
 
+        // Multi-tender sales sit under payment_type = PAYMENT_MULTI, so the
+        // per-type sums below would skip them; fold their per-tender applied
+        // amounts (which sum to each sale's total) into the same buckets.
+        $multiTenderTotals = \DB::table('sale_payments')
+            ->join('sales', 'sales.id', '=', 'sale_payments.sales_id')
+            ->where('sales.pos_id', $posId)
+            ->whereNull('sales.z_reading_id')
+            ->where('sales.is_training', 0)
+            ->where('sales.cancelled', 0)
+            ->where('sales.type', 0)
+            ->where('sales.payment_type', Sale::PAYMENT_MULTI)
+            ->groupBy('sale_payments.payment_type')
+            ->selectRaw('sale_payments.payment_type as payment_type, SUM(sale_payments.amount) as amount')
+            ->pluck('amount', 'payment_type');
+
         $tender = fn (int $type) => (float) (clone $valid)
             ->where('type', false)
             ->where('payment_type', $type)
-            ->sum('total');
+            ->sum('total') + (float) ($multiTenderTotals[$type] ?? 0);
 
         $voids = (clone $base)->where('cancelled', true)->where('type', false);
         $returns = (clone $base)->where('type', true);

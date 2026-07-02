@@ -16,23 +16,28 @@ class ProcessEWalletPaymentJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    private Sale $sale;
-
     /**
      * Create a new job instance.
+     *
+     * For a single-tender sale the deposit amount and bank come off the
+     * sale itself (bank_amount / bank_id). A multi-tender sale dispatches
+     * this job once per e-wallet/bank tender, passing that tender's
+     * applied amount and bank explicitly.
      */
-    public function __construct(Sale $sale)
-    {
-        $this->sale = $sale;
-    }
+    public function __construct(
+        private Sale $sale,
+        private ?float $amount = null,
+        private ?int $bankId = null,
+    ) {}
 
     /**
      * Execute the job.
      */
     public function handle(): void
     {
-        $bank = Bank::find($this->sale->bank_id);
+        $bank = Bank::find($this->bankId ?? $this->sale->bank_id);
         $sale = $this->sale;
+        $tenderAmount = $this->amount ?? $sale->bank_amount;
 
         if (! $bank) {
             \Log::error('Bank not found for sale: '.$sale->id);
@@ -40,9 +45,9 @@ class ProcessEWalletPaymentJob implements ShouldQueue
             return;
         }
 
-        DB::transaction(function () use ($bank, $sale) {
+        DB::transaction(function () use ($bank, $sale, $tenderAmount) {
             $balanceBefore = $bank->balance;
-            $amount = $sale->type ? -$sale->bank_amount : $sale->bank_amount;
+            $amount = $sale->type ? -$tenderAmount : $tenderAmount;
             $balanceAfter = $balanceBefore + $amount;
 
             // Create bank transaction record
@@ -50,7 +55,7 @@ class ProcessEWalletPaymentJob implements ShouldQueue
                 'reference_number' => 'SALE-'.$sale->son,
                 'bank_id' => $bank->id,
                 'type' => $sale->type ? BankTransaction::TYPE_WITHDRAWAL : BankTransaction::TYPE_DEPOSIT,
-                'amount' => abs($sale->bank_amount),
+                'amount' => abs($tenderAmount),
                 'balance_before' => $balanceBefore,
                 'balance_after' => $balanceAfter,
                 'description' => $sale->type ? 'Refund - Invoice #'.$sale->son : 'Sale - Invoice #'.$sale->son,

@@ -122,6 +122,9 @@ Route::name('api.')->prefix('v1')->group(function () {
         // Restaurant Tables
         Route::get('/tables', [\App\Http\Controllers\API\v1\pos\TableController::class, 'index']);
 
+        // POS terminals (cashier reading picker)
+        Route::get('/pos-terminals', [\App\Http\Controllers\API\v1\pos\PosTerminalController::class, 'index']);
+
         // Reservations
         Route::prefix('reservations')->group(function () {
             Route::get('/', [\App\Http\Controllers\API\v1\pos\ReservationController::class, 'index']);

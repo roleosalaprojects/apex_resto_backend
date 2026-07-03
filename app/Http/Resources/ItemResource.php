@@ -35,6 +35,7 @@ class ItemResource extends JsonResource
             'naac' => $this->naac,
             'priority' => (bool) $this->priority,
             'is_composite' => (bool) $this->is_composite,
+            'show_in_pos' => (bool) ($this->show_in_pos ?? true),
             'cost_override' => (bool) $this->cost_override,
             'uom_label' => $this->uom_label,
             'components' => $this->whenLoaded('components', function () {

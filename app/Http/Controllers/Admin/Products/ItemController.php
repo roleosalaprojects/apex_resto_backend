@@ -153,6 +153,7 @@ class /**/ ItemController extends Controller
             'creditable_to_points' => $request->creditable_to_points == 'on',
             'uom_label' => $request->uom_label,
             'cost_override' => $request->cost_override == 'on',
+            'show_in_pos' => $request->show_in_pos == 'on',
         ]);
 
         if (is_array($request->components)) {
@@ -370,6 +371,7 @@ class /**/ ItemController extends Controller
             'creditable_to_points' => $request->creditable_to_points == 'on',
             'uom_label' => $request->uom_label,
             'cost_override' => $request->cost_override == 'on',
+            'show_in_pos' => $request->show_in_pos == 'on',
         ]);
 
         if ($request->has('components')) {

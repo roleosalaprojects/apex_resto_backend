@@ -155,6 +155,7 @@ class OrderController extends Controller
             $q->orWhere('barcode', 'like', "%$request->keyword%");
         })
             ->where('status', true)
+            ->where('show_in_pos', true)
             ->take(100)->get();
 
         return $this->success($products);

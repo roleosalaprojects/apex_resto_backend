@@ -62,6 +62,7 @@ class Item extends Model
         'cost_override',
         'uom_label',
         'kitchen_station_id',
+        'show_in_pos',
     ];
 
     /**
@@ -75,6 +76,7 @@ class Item extends Model
             'featured_order' => 'integer',
             'is_composite' => 'boolean',
             'cost_override' => 'boolean',
+            'show_in_pos' => 'boolean',
         ];
     }
 

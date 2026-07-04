@@ -11702,8 +11702,9 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"order_type\": 0,\n    \"table_id\": 1,\n    \"pax\": 4,\n    \"sc_count\": 1,\n    \"pwd_count\": 0,\n    \"pos_id\": 1,\n    \"lines\": [\n        {\n            \"item_id\": 1,\n            \"qty\": 2,\n            \"seat\": 1,\n            \"notes\": \"No onions\"\n        }\n    ]\n}"
-                }
+                  "raw": "{\n    \"order_type\": 0,\n    \"table_id\": 1,\n    \"table_ids\": [1, 2],\n    \"pax\": 4,\n    \"sc_count\": 1,\n    \"pwd_count\": 0,\n    \"pos_id\": 1,\n    \"lines\": [\n        {\n            \"item_id\": 1,\n            \"qty\": 2,\n            \"seat\": 1,\n            \"notes\": \"No onions\"\n        }\n    ]\n}"
+                },
+                "description": "Open a dine-in/take-out/delivery order and fire the first round. For large parties pass table_ids[] with every table to seat (the first / table_id is the primary); all become occupied together."
               },
               "response": []
             },
@@ -11803,6 +11804,68 @@
                   "mode": "raw",
                   "raw": "{\n    \"table_id\": 3\n}"
                 }
+              },
+              "response": []
+            },
+            {
+              "name": "Join Tables",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/join-tables",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "join-tables"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"table_ids\": [2, 3]\n}"
+                },
+                "description": "Join more tables onto an open dine-in order (the party grew). Occupied or inactive tables are rejected with 422; reserved tables can be seated. All joined tables become occupied and free together when the order settles or cancels."
+              },
+              "response": []
+            },
+            {
+              "name": "Release Table",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/release-table",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "release-table"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"table_id\": 3\n}"
+                },
+                "description": "Return one joined table to the floor (the party shrank). The primary table cannot be released \u2014 use Transfer Table instead. 422 on domain errors."
               },
               "response": []
             },

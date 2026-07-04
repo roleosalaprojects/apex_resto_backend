@@ -73,6 +73,20 @@ class Order extends Model
         return $this->belongsTo(\App\Models\Restaurant\RestaurantTable::class, 'table_id');
     }
 
+    /**
+     * Every table the party occupies (primary included) — joined tables
+     * for large groups. `table_id` remains the primary table.
+     */
+    public function tables(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(
+            \App\Models\Restaurant\RestaurantTable::class,
+            'order_tables',
+            'order_id',
+            'table_id',
+        )->withTimestamps();
+    }
+
     public function waiter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'waiter_id', 'id');

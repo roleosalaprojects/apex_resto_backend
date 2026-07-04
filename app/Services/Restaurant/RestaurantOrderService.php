@@ -32,13 +32,30 @@ class RestaurantOrderService
     /**
      * Open a new order and fire its first round of lines to the kitchen.
      *
-     * @param  array<string, mixed>  $attributes  order header (order_type, table_id, pax, waiter_id, ...)
+     * Large parties can span several physical tables: pass `table_ids`
+     * with every table to seat. `table_id` (or the first of `table_ids`)
+     * stays the primary table on the order header.
+     *
+     * @param  array<string, mixed>  $attributes  order header (order_type, table_id, table_ids?, pax, waiter_id, ...)
      * @param  array<int, array<string, mixed>>  $lines  [{item_id, qty, notes?, unit_id?, unit_qty?}]
      */
     public function openOrder(array $attributes, array $lines, int $userId, ?int $posId = null): Order
     {
         return DB::transaction(function () use ($attributes, $lines, $userId, $posId) {
             $orderType = (int) ($attributes['order_type'] ?? Order::TYPE_DINE_IN);
+
+            $tableIds = collect($attributes['table_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values();
+            $primaryTableId = (int) ($attributes['table_id'] ?? 0) ?: $tableIds->first();
+            if ($primaryTableId) {
+                $tableIds = $tableIds->prepend($primaryTableId)->unique()->values();
+            }
+            if ($tableIds->count() > 1) {
+                $this->assertTablesSeatable($tableIds->all());
+            }
 
             $order = Order::create([
                 'reference' => $attributes['reference'] ?? strtoupper(Str::random(8)),
@@ -48,7 +65,7 @@ class RestaurantOrderService
                 'user_id' => $userId,
                 'status' => Order::STATUS_PREPARING,
                 'order_type' => $orderType,
-                'table_id' => $attributes['table_id'] ?? null,
+                'table_id' => $primaryTableId ?: null,
                 'pax' => $attributes['pax'] ?? null,
                 'sc_count' => $attributes['sc_count'] ?? null,
                 'pwd_count' => $attributes['pwd_count'] ?? null,
@@ -63,13 +80,110 @@ class RestaurantOrderService
 
             $this->fireLines($order, $lines, 1);
 
-            if ($orderType === Order::TYPE_DINE_IN && $order->table_id) {
-                RestaurantTable::where('id', $order->table_id)
+            if ($orderType === Order::TYPE_DINE_IN && $tableIds->isNotEmpty()) {
+                $order->tables()->sync($tableIds->all());
+                RestaurantTable::whereIn('id', $tableIds->all())
                     ->update(['status' => RestaurantTable::STATUS_OCCUPIED]);
             }
 
-            return $order->fresh('lines');
+            return $order->fresh(['lines', 'tables']);
         });
+    }
+
+    /**
+     * Join more tables onto an open dine-in order (the party grew).
+     *
+     * @param  array<int, int>  $tableIds
+     */
+    public function joinTables(Order $order, array $tableIds): Order
+    {
+        $this->assertOpen($order);
+
+        if ((int) $order->order_type !== Order::TYPE_DINE_IN || ! $order->table_id) {
+            throw new RuntimeException('Only seated dine-in orders can join tables.');
+        }
+
+        $ids = collect($tableIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->reject(fn ($id) => $order->tables()->where('restaurant_tables.id', $id)->exists())
+            ->values();
+
+        if ($ids->isEmpty()) {
+            throw new RuntimeException('No new tables to join.');
+        }
+
+        return DB::transaction(function () use ($order, $ids) {
+            $this->assertTablesSeatable($ids->all());
+
+            $order->tables()->syncWithoutDetaching($ids->all());
+            RestaurantTable::whereIn('id', $ids->all())
+                ->update(['status' => RestaurantTable::STATUS_OCCUPIED]);
+
+            return $order->fresh(['lines', 'tables']);
+        });
+    }
+
+    /**
+     * Release one joined table back to the floor (the party shrank).
+     * The primary table can only leave via transferTable.
+     */
+    public function releaseTable(Order $order, RestaurantTable $table): Order
+    {
+        $this->assertOpen($order);
+
+        if ((int) $table->id === (int) $order->table_id) {
+            throw new RuntimeException('The primary table cannot be released — transfer the order instead.');
+        }
+        if (! $order->tables()->where('restaurant_tables.id', $table->id)->exists()) {
+            throw new RuntimeException('That table is not joined to this order.');
+        }
+
+        return DB::transaction(function () use ($order, $table) {
+            $order->tables()->detach($table->id);
+            $table->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+
+            return $order->fresh(['lines', 'tables']);
+        });
+    }
+
+    /**
+     * Reject joining any table that is already occupied or inactive.
+     * (Reserved tables can be seated — the host is honouring the booking.)
+     *
+     * @param  array<int, int>  $tableIds
+     */
+    private function assertTablesSeatable(array $tableIds): void
+    {
+        $blocked = RestaurantTable::whereIn('id', $tableIds)
+            ->whereIn('status', [
+                RestaurantTable::STATUS_OCCUPIED,
+                RestaurantTable::STATUS_INACTIVE,
+            ])
+            ->pluck('name');
+
+        if ($blocked->isNotEmpty()) {
+            throw new RuntimeException(
+                'Cannot seat on '.$blocked->join(', ').' — already occupied or inactive.',
+            );
+        }
+    }
+
+    /**
+     * Free every table the order occupies (joined set, falling back to
+     * the primary for orders created before table joining existed).
+     */
+    private function freeTables(Order $order): void
+    {
+        $ids = $order->tables()->pluck('restaurant_tables.id');
+        if ($ids->isEmpty() && $order->table_id) {
+            $ids = collect([$order->table_id]);
+        }
+        if ($ids->isNotEmpty()) {
+            RestaurantTable::whereIn('id', $ids->all())
+                ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+        }
     }
 
     /**
@@ -101,6 +215,13 @@ class RestaurantOrderService
 
             $order->update(['table_id' => $newTableId]);
 
+            // Swap the primary in the joined set; other joined tables
+            // stay with the party.
+            if ($oldTableId) {
+                $order->tables()->detach($oldTableId);
+            }
+            $order->tables()->syncWithoutDetaching([$newTableId]);
+
             if ($oldTableId && $oldTableId !== $newTableId) {
                 RestaurantTable::where('id', $oldTableId)
                     ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
@@ -108,7 +229,7 @@ class RestaurantOrderService
             RestaurantTable::where('id', $newTableId)
                 ->update(['status' => RestaurantTable::STATUS_OCCUPIED]);
 
-            return $order->fresh('lines');
+            return $order->fresh(['lines', 'tables']);
         });
     }
 
@@ -243,10 +364,7 @@ class RestaurantOrderService
                     'completed_at' => now(),
                 ]);
 
-                if ($order->table_id) {
-                    RestaurantTable::where('id', $order->table_id)
-                        ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
-                }
+                $this->freeTables($order);
             }
 
             return $sale;
@@ -284,10 +402,7 @@ class RestaurantOrderService
                 'cancelled_at' => now(),
             ]);
 
-            if ($order->table_id) {
-                RestaurantTable::where('id', $order->table_id)
-                    ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
-            }
+            $this->freeTables($order);
 
             return $order->fresh('lines');
         });

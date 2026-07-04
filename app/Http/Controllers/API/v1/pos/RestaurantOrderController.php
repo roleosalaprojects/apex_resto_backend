@@ -28,7 +28,7 @@ class RestaurantOrderController extends Controller
             ->whereNotNull('order_type')
             ->whereNull('sales_id')
             ->whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_COMPLETED])
-            ->with(['lines', 'table:id,name,number', 'waiter:id,name'])
+            ->with(['lines', 'table:id,name,number', 'tables:id,name,number', 'waiter:id,name'])
             ->orderByDesc('id')
             ->get();
 
@@ -40,6 +40,8 @@ class RestaurantOrderController extends Controller
         $validated = $request->validate([
             'order_type' => ['required', Rule::in([Order::TYPE_DINE_IN, Order::TYPE_TAKE_OUT, Order::TYPE_DELIVERY])],
             'table_id' => ['nullable', 'integer', 'exists:restaurant_tables,id'],
+            'table_ids' => ['nullable', 'array'],
+            'table_ids.*' => ['integer', 'exists:restaurant_tables,id'],
             'pax' => ['nullable', 'integer', 'min:1'],
             'sc_count' => ['nullable', 'integer', 'min:0'],
             'pwd_count' => ['nullable', 'integer', 'min:0'],
@@ -63,19 +65,23 @@ class RestaurantOrderController extends Controller
             'store_id' => $request->input('store_id'),
         ]);
 
-        $order = $this->orders->openOrder(
-            $attributes,
-            $validated['lines'],
-            $user->user_id,
-            $validated['pos_id'] ?? $request->input('pos_id'),
-        );
+        try {
+            $order = $this->orders->openOrder(
+                $attributes,
+                $validated['lines'],
+                $user->user_id,
+                $validated['pos_id'] ?? $request->input('pos_id'),
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
 
-        return $this->created($order->load(['lines', 'table:id,name,number']));
+        return $this->created($order->load(['lines', 'table:id,name,number', 'tables:id,name,number']));
     }
 
     public function show(Order $order): JsonResponse
     {
-        return $this->success($order->load(['lines.item:id,name', 'table:id,name,number', 'waiter:id,name', 'sale:id,son,total']));
+        return $this->success($order->load(['lines.item:id,name', 'table:id,name,number', 'tables:id,name,number', 'waiter:id,name', 'sale:id,son,total']));
     }
 
     public function rounds(Request $request, Order $order): JsonResponse
@@ -104,6 +110,40 @@ class RestaurantOrderController extends Controller
         $order = $this->orders->transferTable($order, $validated['table_id']);
 
         return $this->success($order);
+    }
+
+    public function joinTables(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'table_ids' => ['required', 'array', 'min:1'],
+            'table_ids.*' => ['integer', 'exists:restaurant_tables,id'],
+        ]);
+
+        try {
+            $order = $this->orders->joinTables($order, $validated['table_ids']);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($order->load('tables:id,name,number'));
+    }
+
+    public function releaseTable(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'table_id' => ['required', 'integer', 'exists:restaurant_tables,id'],
+        ]);
+
+        try {
+            $order = $this->orders->releaseTable(
+                $order,
+                \App\Models\Restaurant\RestaurantTable::findOrFail($validated['table_id']),
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($order->load('tables:id,name,number'));
     }
 
     public function voidLine(Request $request, Order $order, OrderLine $line): JsonResponse

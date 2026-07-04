@@ -54,6 +54,16 @@
             <div class="form-text text-muted">Enter an emoji or short text to display as the category icon on the shop page</div>
         </div>
         <div class="form-group fv-row mb-6">
+            <label for="kitchen_station_id" class="form-label">Kitchen Station</label>
+            <select class="form-select" id="kitchen_station_id" name="kitchen_station_id">
+                <option value="">— No routing (front counter) —</option>
+                @foreach($stations as $station)
+                    <option value="{{ $station->id }}">{{ $station->name }}</option>
+                @endforeach
+            </select>
+            <div class="form-text text-muted">Default station for items in this category. Items can override it individually.</div>
+        </div>
+        <div class="form-group fv-row mb-6">
             <label class="form-label">Category Image</label>
             <div class="image-input image-input-outline" data-kt-image-input="true" id="categoryImageInput"
                  style="background-image: url({{ asset('/assets/media/svg/shapes/abstract-4.svg') }})">

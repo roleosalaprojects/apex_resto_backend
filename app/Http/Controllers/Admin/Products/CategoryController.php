@@ -30,8 +30,10 @@ class CategoryController extends Controller
         $access = Role::find(auth()->user()->role_id);
         if ($access->itms) {
             $categories = Category::where('user_id', auth()->user()->user_id)->where('status', true)->get();
+            $stations = \App\Models\Restaurant\KitchenStation::where('user_id', auth()->user()->user_id)
+                ->where('status', true)->orderBy('name')->get(['id', 'name']);
 
-            return view('admin.products.categories.index', compact('categories', 'access'));
+            return view('admin.products.categories.index', compact('categories', 'access', 'stations'));
         }
 
         return redirect('/home')->with('error', "You don't have rights to access this. Please contact administrator if there are any concerns.");
@@ -53,6 +55,7 @@ class CategoryController extends Controller
             'description' => $validated['description'] ?? null,
             'image' => $imagePath ?: null,
             'icon' => $validated['icon'] ?? null,
+            'kitchen_station_id' => $validated['kitchen_station_id'] ?? null,
             'status' => true,
             'user_id' => auth()->user()->user_id,
         ]);
@@ -98,6 +101,7 @@ class CategoryController extends Controller
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'icon' => $validated['icon'] ?? null,
+            'kitchen_station_id' => $validated['kitchen_station_id'] ?? null,
         ];
 
         if ($imagePath) {
@@ -166,6 +170,7 @@ class CategoryController extends Controller
             'description' => $category->description,
             'image' => $category->image ? asset($category->image) : null,
             'icon' => $category->icon,
+            'kitchen_station_id' => $category->kitchen_station_id,
         ]);
     }
 

@@ -406,13 +406,26 @@
                     <div class="card-body pt-4">
                         <div class="row mb-5">
                             <div class="col-md-4">
+                                <label for="kitchen_station_id" class="form-label">Kitchen Station</label>
+                                <select name="kitchen_station_id" id="kitchen_station_id" class="form-select">
+                                    <option value="">— Category default —</option>
+                                    @foreach(($stations ?? []) as $station)
+                                        <option value="{{ $station->id }}"
+                                                {{ old('kitchen_station_id', $item->kitchen_station_id) == $station->id ? 'selected' : '' }}>
+                                            {{ $station->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <div class="text-muted fs-7">Overrides the category's station for KDS routing.</div>
+                            </div>
+                            <div class="col-md-4">
                                 <label for="uom_label" class="form-label">Stock Unit Label</label>
                                 <input type="text" class="form-control" name="uom_label" id="uom_label"
                                        maxlength="10" placeholder="g / ml / pc"
                                        value="{{ old('uom_label', $item->uom_label) }}">
                                 <div class="text-muted fs-7">Fine unit this item is stocked in (for ingredients).</div>
                             </div>
-                            <div class="col-md-8 d-flex align-items-center">
+                            <div class="col-md-4 d-flex align-items-center flex-wrap">
                                 <div class="form-check mt-5 me-10">
                                     <input type="checkbox" class="form-check-input" name="cost_override" id="cost_override"
                                             {{ old('cost_override', $item->cost_override) ? 'checked' : '' }}>

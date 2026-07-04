@@ -36,6 +36,7 @@ class UpdateRequest extends FormRequest
             'image' => ['nullable', 'file', 'image', 'mimes:jpeg,png,jpg', 'max:2048'],
             'old_image' => ['nullable', 'string'],
             'icon' => ['nullable', 'string', 'max:100'],
+            'kitchen_station_id' => ['nullable', 'integer', 'exists:kitchen_stations,id'],
         ];
     }
 

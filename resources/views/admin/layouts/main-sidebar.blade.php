@@ -175,6 +175,45 @@
             </li>
           @endif
 
+          {{-- Restaurant --}}
+          @if ($access->rstrnt)
+            <li class="nav-item has-treeview {{ (request()->is('admin/restaurant-tables*') || request()->is('admin/kitchen-stations*') || request()->is('admin/reservations*')) ? 'menu-open' : '' }}">
+              <a href="#" class="nav-link {{ (request()->is('admin/restaurant-tables*') || request()->is('admin/kitchen-stations*') || request()->is('admin/reservations*')) ? 'active' : '' }}">
+                <i class="nav-icon fas fa-utensils"></i>
+                <p>
+                  Restaurant
+                  <i class="fas fa-angle-left right"></i>
+                </p>
+              </a>
+              <ul class="nav nav-treeview">
+                <li class="nav-item">
+                  <a href="{{ route('restaurant-tables.floorplan') }}" class="nav-link {{ (request()->is('admin/restaurant-tables/floorplan*')) ? 'active' : '' }}">
+                    <i class="fas fa-border-all nav-icon"></i>
+                    <p>Floorplan</p>
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a href="{{ route('restaurant-tables.index') }}" class="nav-link {{ (request()->is('admin/restaurant-tables') || request()->is('admin/restaurant-tables/*/edit') || request()->is('admin/restaurant-tables/create')) ? 'active' : '' }}">
+                    <i class="fas fa-chair nav-icon"></i>
+                    <p>Tables</p>
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a href="{{ route('kitchen-stations.index') }}" class="nav-link {{ (request()->is('admin/kitchen-stations*')) ? 'active' : '' }}">
+                    <i class="fas fa-fire-burner nav-icon"></i>
+                    <p>Kitchen Stations</p>
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a href="{{ route('reservations.index') }}" class="nav-link {{ (request()->is('admin/reservations*')) ? 'active' : '' }}">
+                    <i class="fas fa-calendar-check nav-icon"></i>
+                    <p>Reservations</p>
+                  </a>
+                </li>
+              </ul>
+            </li>
+          @endif
+
           @if ($access->trnsfrs || $access->adjstmnts || $access->spplrs || $access->prchs || $access->invntry)
             <li class="nav-item has-treeview {{ (request()->is('admin/inventory*')) ? 'menu-open' : '' }}">
               <a href="#" class="nav-link {{ (request()->is('admin/inventory*')) ? 'active' : '' }}">

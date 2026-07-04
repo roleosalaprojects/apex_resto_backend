@@ -25,6 +25,52 @@ class RestaurantTableController extends Controller
         return view('admin.restaurant.tables.index', compact('access'));
     }
 
+    /**
+     * Live floor map: tables grouped by area with their open orders,
+     * refreshed by polling floorplanData().
+     */
+    public function floorplan()
+    {
+        $access = Role::find(auth()->user()->role_id);
+        if (! $access->rstrnt) {
+            return $this->denied();
+        }
+
+        return view('admin.restaurant.floorplan.index', compact('access'));
+    }
+
+    public function floorplanData()
+    {
+        $tables = RestaurantTable::query()
+            ->where('user_id', auth()->user()->user_id)
+            ->with(['openOrder' => function ($q) {
+                $q->select('id', 'table_id', 'reference', 'pax', 'amount', 'status', 'created_at');
+            }])
+            ->orderBy('area')
+            ->orderBy('name')
+            ->get()
+            ->map(function (RestaurantTable $table) {
+                $open = $table->openOrder->first();
+
+                return [
+                    'id' => $table->id,
+                    'name' => $table->name,
+                    'area' => $table->area ?: 'Main',
+                    'seats' => $table->seats,
+                    'status' => (int) $table->status,
+                    'edit_url' => route('restaurant-tables.edit', $table),
+                    'open_order' => $open ? [
+                        'reference' => $open->reference,
+                        'pax' => $open->pax,
+                        'amount' => (float) $open->amount,
+                        'opened_at' => optional($open->created_at)->toIso8601String(),
+                    ] : null,
+                ];
+            });
+
+        return response()->json(['tables' => $tables]);
+    }
+
     public function create()
     {
         if (! auth()->user()->role->rstrnt_create) {

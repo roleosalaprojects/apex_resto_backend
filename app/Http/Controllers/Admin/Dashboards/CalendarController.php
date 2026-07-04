@@ -23,7 +23,49 @@ class CalendarController extends Controller
      */
     public function index(Request $request): View
     {
-        return view('admin.dashboards.calendar');
+        $tables = \App\Models\Restaurant\RestaurantTable::query()
+            ->where('user_id', auth()->user()->user_id)
+            ->where('status', '!=', \App\Models\Restaurant\RestaurantTable::STATUS_INACTIVE)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return view('admin.dashboards.calendar', compact('tables'));
+    }
+
+    /**
+     * Reservations as a FullCalendar event source (status-coloured).
+     */
+    public function reservationsData(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $colors = [
+            \App\Models\Restaurant\Reservation::STATUS_PENDING => config('colors.warning'),
+            \App\Models\Restaurant\Reservation::STATUS_CONFIRMED => config('colors.success'),
+            \App\Models\Restaurant\Reservation::STATUS_SEATED => config('colors.info'),
+        ];
+
+        $reservations = \App\Models\Restaurant\Reservation::query()
+            ->where('user_id', auth()->user()->user_id)
+            ->whereIn('status', array_keys($colors))
+            ->with('table:id,name')
+            ->get()
+            ->map(fn ($r) => [
+                'id' => 'rsv-'.$r->id,
+                'title' => $r->name.' · '.$r->party_size.' pax',
+                'start' => $r->reserved_at->toIso8601String(),
+                'end' => $r->reserved_at->copy()->addMinutes($r->duration_minutes ?? 90)->toIso8601String(),
+                'color' => $colors[$r->status],
+                'editable' => false,
+                'type' => 'reservation',
+                'reservation_id' => $r->id,
+                'guest' => $r->name,
+                'phone' => $r->phone,
+                'party_size' => $r->party_size,
+                'table' => $r->table?->name,
+                'status' => $r->status,
+                'notes' => $r->notes,
+            ]);
+
+        return response()->json($reservations);
     }
 
     /**

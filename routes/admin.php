@@ -421,6 +421,7 @@ Route::middleware('auth')->prefix('/admin')->group(function () {
             Route::get('/events', 'events')->name('calendars.events');
             Route::get('/sales', 'salesData')->name('calendar.salesData');
             Route::get('/purchases', 'purchasesData')->name('calendars.purchases');
+            Route::get('/reservations', 'reservationsData')->name('calendars.reservations');
         });
     });
 

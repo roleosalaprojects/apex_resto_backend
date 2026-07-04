@@ -59,6 +59,10 @@ class ReservationController extends Controller
             'user_id' => auth()->user()->user_id,
         ]);
 
+        if ($request->wantsJson()) {
+            return response()->json(['message' => 'Reservation booked!'], 201);
+        }
+
         return redirect()->route('reservations.index')->with('success', 'Reservation added!');
     }
 

@@ -186,6 +186,28 @@ class JoinTablesTest extends TestCase
         $this->assertFalse($tableB['open_order']['is_primary_table']);
     }
 
+    public function test_kds_queue_carries_the_joined_table_names(): void
+    {
+        $station = \App\Models\Restaurant\KitchenStation::factory()->create([
+            'user_id' => 1,
+            'store_id' => $this->store->id,
+        ]);
+        $this->item->update(['kitchen_station_id' => $station->id]);
+
+        [$a, $b] = $this->makeTables(2);
+        $this->openOrder(['table_ids' => [$a->id, $b->id]])->assertStatus(201);
+
+        $lines = $this->getJson('/api/v1/kds/stations/'.$station->id.'/queue')
+            ->assertStatus(200)
+            ->json('data.lines');
+
+        $tables = collect($lines[0]['order']['tables'])->pluck('name');
+        $this->assertEqualsCanonicalizing(
+            [$a->name, $b->name],
+            $tables->all(),
+        );
+    }
+
     public function test_transfer_swaps_the_primary_and_keeps_joined_tables(): void
     {
         [$a, $b, $c] = $this->makeTables(3);

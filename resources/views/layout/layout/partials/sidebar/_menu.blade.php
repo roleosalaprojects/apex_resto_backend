@@ -266,6 +266,52 @@
             </div>
             <!--end:Menu item-->
         @endif
+        @if (auth()->user()->role->rstrnt)
+            <!--begin:Menu item - Restaurant-->
+            <div data-kt-menu-trigger="{default: 'click', lg: 'hover'}" data-kt-menu-placement="right-start" class="menu-item py-2 {{ request()->routeIs('restaurant-tables.*', 'kitchen-stations.*', 'reservations.*') ? 'here show' : '' }}">
+                <!--begin:Menu content-->
+                <span class="menu-link menu-center">
+                    <span class="menu-icon me-0">
+                        <i class="ki-outline ki-cup fs-1"></i>
+                    </span>
+                </span>
+                <!--end:Menu link-->
+                <!--begin:Menu sub-->
+                <div class="menu-sub menu-sub-dropdown menu-sub-indention px-2 py-4 w-250px mh-75 overflow-auto">
+                    <div class="menu-item">
+                        <div class="menu-content">
+                            <span class="menu-section fs-5 fw-bolder ps-1 py-1">Restaurant</span>
+                        </div>
+                    </div>
+                    <div class="menu-item">
+                        <a class="menu-link {{ request()->routeIs('restaurant-tables.floorplan') ? 'active' : '' }}" href="{{ route('restaurant-tables.floorplan') }}">
+                            <span class="menu-bullet"><span class="bullet bullet-dot"></span></span>
+                            <span class="menu-title">Floorplan</span>
+                        </a>
+                    </div>
+                    <div class="menu-item">
+                        <a class="menu-link {{ request()->routeIs('restaurant-tables.index', 'restaurant-tables.create', 'restaurant-tables.edit') ? 'active' : '' }}" href="{{ route('restaurant-tables.index') }}">
+                            <span class="menu-bullet"><span class="bullet bullet-dot"></span></span>
+                            <span class="menu-title">Tables</span>
+                        </a>
+                    </div>
+                    <div class="menu-item">
+                        <a class="menu-link {{ request()->routeIs('kitchen-stations.*') ? 'active' : '' }}" href="{{ route('kitchen-stations.index') }}">
+                            <span class="menu-bullet"><span class="bullet bullet-dot"></span></span>
+                            <span class="menu-title">Kitchen Stations</span>
+                        </a>
+                    </div>
+                    <div class="menu-item">
+                        <a class="menu-link {{ request()->routeIs('reservations.*') ? 'active' : '' }}" href="{{ route('reservations.index') }}">
+                            <span class="menu-bullet"><span class="bullet bullet-dot"></span></span>
+                            <span class="menu-title">Reservations</span>
+                        </a>
+                    </div>
+                </div>
+                <!--end:Menu sub-->
+            </div>
+            <!--end:Menu item-->
+        @endif
         @if (auth()->user()->role->itms || auth()->user()->role->adjstmnts || auth()->user()->role->trnsfrs || auth()->user()->role->prchs || auth()->user()->role->invntry || auth()->user()->role->spplrs)
             <!--begin:Menu item - Inventory (Products + Stocks)-->
             <div data-kt-menu-trigger="{default: 'click', lg: 'hover'}" data-kt-menu-placement="right-start" class="menu-item py-2 {{ request()->routeIs('items.*', 'categories.*', 'purchases.*', 'transfers.*', 'adjustments.*', 'counts.*', 'suppliers.*') || request()->is('units*') ? 'here show' : '' }}">

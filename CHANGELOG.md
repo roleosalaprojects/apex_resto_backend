@@ -6,6 +6,104 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Restaurant POS] - 2026-07-02
+
+### Fixed — Test suite green (stale tests updated to current behaviour)
+- Root `/` tests now assert the intentional `301 → /shop` redirect;
+  customer API registration test supplies the required SMS OTP (dev
+  mode) and terms acceptance; email-verification branding test seeds a
+  tenant `BrandingSetting` instead of assuming the source fork's brand;
+  POS ecommerce-orders list test expects cancelled orders (full
+  lifecycle is shown, informational); wholesale-tier ordering test reads
+  the `data.tiers` wrapper; reorder-alert tests trigger the scheduled
+  `notifications:fire-alerts` command, where alert pushes actually live
+  now. Full suite: 0 failures.
+
+### Changed
+- Postman collection documents the Phase 5–8 settlement API: Split
+  Settle, Settle Seat(s), Assign Seat requests and the `payments[]` /
+  pax / SC-PWD / beneficiary fields on Settle.
+
+### Added — Per-receipt pax & SC/PWD group discount (Phase 8)
+- Settlement payloads (`settle`, `split-settle`, `settle-seat`) accept
+  per-receipt `pax` / `sc_count` / `pwd_count` plus beneficiary identity
+  (`special_discount_name` / `special_discount_id` /
+  `special_discount_tin`). Payload values win; a receipt that bills the
+  whole order still inherits the order header, but partial (split/seat)
+  receipts no longer copy it — that copy overstated BIR SC/PWD counts
+  on every receipt of a split bill.
+- Declaring `pax` + beneficiaries in the settlement payload computes the
+  RMC 38-2012 SC/PWD group discount server-side via the existing
+  `DiscountAllocationService`: the beneficiaries' share of the
+  VAT-inclusive bill is VAT-stripped into `vat_exempt` and discounted
+  20%, `total` becomes the net due, and the discount splits across
+  `sc_discount` / `pwd_discount` by headcount. Billing a senior's own
+  seat with `pax: 1, sc_count: 1` makes their discount exact instead of
+  prorated. No declaration → no discount (unchanged behaviour).
+- The discount resolves before tender resolution, so cash change and
+  multi-tender validation run against the discounted amount due.
+- Beneficiaries exceeding pax, or declared without pax, return `422`.
+- `GroupDiscountSettlementTest` covers the allocation maths, exact
+  per-seat billing, header-copy rules, multi-tender interplay, SC/PWD
+  splits, reject paths and the X-reading discount buckets.
+
+### Added — Multi-tender settlement (Phase 7)
+- One receipt can now be paid with several tenders (e.g. cash + card +
+  e-wallet). The `settle`, `split-settle` and `settle-seat` endpoints
+  accept a `payments[]` array (two or more of `{payment_type, amount,
+  reference_number?, bank_id?}`) in place of the single `payment_type`.
+- New `sale_payments` table stores the per-tender APPLIED amounts — change
+  is only ever given from cash and never lands in a row — so each sale's
+  rows sum exactly to its total and per-tender readings reconcile against
+  gross sales. The sale itself carries `payment_type = 8 (PAYMENT_MULTI)`.
+- Credit and cheque are excluded from multi-tender (both drive
+  single-tender ledger workflows: credit-balance charge, cheque clearing);
+  tenders must cover the total, non-cash tenders can't exceed it, and
+  domain violations return `422`.
+- Per-tender bucketing folds multi-tender portions into the X reading
+  (`apexReading`), the Z reading Annex F tender columns and the daily BI
+  store metrics; each e-wallet/bank tender deposits its own
+  `BankTransaction` at the tender's applied amount. Legacy single-tender
+  aggregation paths are untouched, so existing readings can't shift.
+- Receipt views now label payment types 4–7 correctly (previously fell
+  back to "Cash") and print the tender breakdown + change on split-tender
+  receipts.
+- `MultiTenderTest` covers the breakdown, change-from-cash, bank deposits,
+  split/seat variants, reject paths and X/Z/daily-aggregation folding.
+
+## [Restaurant POS] - 2026-06-19
+
+### Added — Bill by seat (Phase 6)
+- `order_lines.seat` assigns each line to a diner/seat (`NULL` =
+  unassigned); accepted per line when opening an order or adding a round.
+- `RestaurantOrderService::settleSeats()` bills every unsettled, non-voided
+  line for the given seat(s) onto one Sale — built on the same
+  `settleLines()` foundation as split bill, so the order completes and the
+  table frees only once all seats are paid.
+- `RestaurantOrderService::assignSeat()` reassigns a line's seat before it
+  is settled (settled lines are locked).
+- `POST /v1/restaurant-orders/{order}/settle-seat` (`seats[]` + payment)
+  and `POST /v1/restaurant-orders/{order}/lines/{line}/assign-seat`
+  (`seat`); both return `422` on a domain error (no billable lines for the
+  seat, or reassigning a settled line).
+
+### Added — Split bill (Phase 5)
+- Per-line settlement: `order_lines.sales_id` links each line to the Sale
+  that settled it (`NULL` = unsettled), so one order can produce multiple
+  official receipts.
+- `RestaurantOrderService::splitSettle()` bills a chosen subset of an
+  order's lines onto its own Sale and leaves the rest open; the order
+  completes and the table frees only once every non-voided line is
+  settled. A shared `settleLines()` helper backs both `splitSettle()` and
+  the existing full `settle()`, which now bills whatever remains unsettled
+  — so a split bill can be finished with either call.
+- `POST /v1/restaurant-orders/{order}/split-settle` (`line_ids[]` +
+  payment); returns `fully_settled` and `order_status`. Selecting an
+  already-settled or voided line is rejected with `422`.
+- `SaleCreationData::fromRestaurantOrder` now bills an explicit set of
+  lines rather than "all non-voided", with no change to the full-settle
+  total/VAT behaviour.
+
 ## [Restaurant POS] - 2026-06-16
 
 Forked from apex_backend with a fresh history and specialised into a

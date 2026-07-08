@@ -11686,11 +11686,11 @@
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11702,8 +11702,9 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"order_type\": 0,\n    \"table_id\": 1,\n    \"pax\": 4,\n    \"pos_id\": 1,\n    \"lines\": [\n        {\n            \"item_id\": 1,\n            \"qty\": 2,\n            \"notes\": \"No onions\"\n        }\n    ]\n}"
-                }
+                  "raw": "{\n    \"order_type\": 0,\n    \"table_id\": 1,\n    \"table_ids\": [1, 2],\n    \"pax\": 4,\n    \"sc_count\": 1,\n    \"pwd_count\": 0,\n    \"pos_id\": 1,\n    \"lines\": [\n        {\n            \"item_id\": 1,\n            \"qty\": 2,\n            \"seat\": 1,\n            \"notes\": \"No onions\"\n        }\n    ]\n}"
+                },
+                "description": "Open a dine-in/take-out/delivery order and fire the first round. For large parties pass table_ids[] with every table to seat (the first / table_id is the primary); all become occupied together."
               },
               "response": []
             },
@@ -11713,7 +11714,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11732,7 +11733,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11753,11 +11754,11 @@
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/rounds",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/rounds",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11783,11 +11784,11 @@
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/transfer-table",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/transfer-table",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11807,17 +11808,79 @@
               "response": []
             },
             {
+              "name": "Join Tables",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/join-tables",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "join-tables"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"table_ids\": [2, 3]\n}"
+                },
+                "description": "Join more tables onto an open dine-in order (the party grew). Occupied or inactive tables are rejected with 422; reserved tables can be seated. All joined tables become occupied and free together when the order settles or cancels."
+              },
+              "response": []
+            },
+            {
+              "name": "Release Table",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/release-table",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "release-table"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"table_id\": 3\n}"
+                },
+                "description": "Return one joined table to the floor (the party shrank). The primary table cannot be released \u2014 use Transfer Table instead. 422 on domain errors."
+              },
+              "response": []
+            },
+            {
               "name": "Void Line",
               "request": {
                 "method": "POST",
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/lines\/1\/void",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/lines/1/void",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11845,11 +11908,11 @@
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/settle",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/settle",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11863,8 +11926,104 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"payment_type\": 1,\n    \"cash\": 500\n}"
-                }
+                  "raw": "{\n    \"payment_type\": 1,\n    \"cash\": 500,\n    \"pax\": 3,\n    \"sc_count\": 1,\n    \"pwd_count\": 0,\n    \"special_discount_name\": \"Juan Dela Cruz\",\n    \"special_discount_id\": \"OSCA-1234\",\n    \"special_discount_tin\": null,\n    \"payments\": [\n        { \"payment_type\": 1, \"amount\": 300 },\n        { \"payment_type\": 6, \"amount\": 135.71, \"reference_number\": \"CARD-001\" }\n    ]\n}"
+                },
+                "description": "Bill every unsettled, non-voided line onto one Sale (after a split bill this pays whatever remains).\n\nSingle-tender: send payment_type (1 cash, 2 e-wallet, 4 bank transfer, 6 card, 7 gift cert) + cash (tendered, for change). Multi-tender: send payments[] with 2+ tenders instead of payment_type \u2014 credit (3) and cheque (5) are excluded; tenders must cover the total and non-cash tenders can't exceed it.\n\nDeclaring pax + sc_count/pwd_count computes the RMC 38-2012 SC/PWD group discount server-side for this receipt (VAT-exempt share + 20% off); special_discount_name/id/tin record the beneficiary for the BIR discount book. Omit them for no discount. 422 on domain errors."
+              },
+              "response": []
+            },
+            {
+              "name": "Split Settle (by lines)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/split-settle",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "split-settle"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"line_ids\": [1, 2],\n    \"payment_type\": 1,\n    \"cash\": 200,\n    \"payments\": [\n        { \"payment_type\": 1, \"amount\": 100 },\n        { \"payment_type\": 2, \"amount\": 50, \"bank_id\": 1, \"reference_number\": \"GCASH-99\" }\n    ]\n}"
+                },
+                "description": "Bill a chosen subset of the order's lines onto its own Sale / official receipt, leaving the rest open. The order completes and the table frees only once every non-voided line is settled. Accepts the same payment fields as Settle (payments[] multi-tender, pax/sc_count/pwd_count group discount). Already-settled or voided lines 422."
+              },
+              "response": []
+            },
+            {
+              "name": "Settle Seat(s)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/settle-seat",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "settle-seat"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"seats\": [1],\n    \"payment_type\": 1,\n    \"cash\": 100,\n    \"pax\": 1,\n    \"sc_count\": 1,\n    \"special_discount_name\": \"Juan Dela Cruz\",\n    \"special_discount_id\": \"OSCA-1234\"\n}"
+                },
+                "description": "Bill every unsettled, non-voided line for the given seat(s) onto one Sale. Accepts the same payment fields as Settle. Declaring pax: 1, sc_count: 1 gives a senior's own seat its exact discount. No billable lines for the seat(s) 422."
+              },
+              "response": []
+            },
+            {
+              "name": "Assign Seat to Line",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/lines/1/assign-seat",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "restaurant-orders",
+                    "1",
+                    "lines",
+                    "1",
+                    "assign-seat"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"seat\": 2\n}"
+                },
+                "description": "Reassign a line to a diner/seat before it is settled (null clears it). Settled lines are locked; 422."
               },
               "response": []
             },
@@ -11874,7 +12033,7 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/restaurant-orders\/1\/cancel",
+                  "raw": "{{base_url}}/api/v1/restaurant-orders/1/cancel",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11900,7 +12059,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/kds\/stations",
+                  "raw": "{{base_url}}/api/v1/kds/stations",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11920,7 +12079,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/kds\/stations\/1\/queue?updated_since=",
+                  "raw": "{{base_url}}/api/v1/kds/stations/1/queue?updated_since=",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11942,7 +12101,7 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/kds\/lines\/1\/bump",
+                  "raw": "{{base_url}}/api/v1/kds/lines/1/bump",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11964,7 +12123,7 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/kds\/orders\/1\/bump",
+                  "raw": "{{base_url}}/api/v1/kds/orders/1/bump",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -11991,7 +12150,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/tables",
+                  "raw": "{{base_url}}/api/v1/tables",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -12010,7 +12169,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/reservations",
+                  "raw": "{{base_url}}/api/v1/reservations",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -12030,11 +12189,11 @@
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/reservations",
+                  "raw": "{{base_url}}/api/v1/reservations",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -12058,11 +12217,11 @@
                 "header": [
                   {
                     "key": "Content-Type",
-                    "value": "application\/json"
+                    "value": "application/json"
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/reservations\/1\/status",
+                  "raw": "{{base_url}}/api/v1/reservations/1/status",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -12084,7 +12243,7 @@
           ]
         },
         {
-          "name": "BIR (Void \/ Reprint)",
+          "name": "BIR (Void / Reprint)",
           "item": [
             {
               "name": "Void Sale",
@@ -12092,7 +12251,7 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/sales\/void\/1",
+                  "raw": "{{base_url}}/api/v1/sales/void/1",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -12113,7 +12272,7 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}\/api\/v1\/sales\/reprint\/1",
+                  "raw": "{{base_url}}/api/v1/sales/reprint/1",
                   "host": [
                     "{{base_url}}"
                   ],

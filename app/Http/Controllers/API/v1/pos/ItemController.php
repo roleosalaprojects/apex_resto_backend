@@ -32,6 +32,7 @@ class ItemController extends Controller
                     ->orWhere('barcode', 'like', "%$request->term%");
             })
             ->where('status', true)
+            ->where('show_in_pos', true)
             ->orderBy('name', 'asc')
             ->take(100)
             ->get();
@@ -85,6 +86,7 @@ class ItemController extends Controller
     public function searchItemsFromKey(Request $request): JsonResponse
     {
         $products = Item::where('items.status', true)
+            ->where('items.show_in_pos', true)
             ->with([
                 'category' => function ($query) {
                     $query->select('id', 'name');

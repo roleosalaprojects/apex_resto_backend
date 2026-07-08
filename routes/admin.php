@@ -421,6 +421,7 @@ Route::middleware('auth')->prefix('/admin')->group(function () {
             Route::get('/events', 'events')->name('calendars.events');
             Route::get('/sales', 'salesData')->name('calendar.salesData');
             Route::get('/purchases', 'purchasesData')->name('calendars.purchases');
+            Route::get('/reservations', 'reservationsData')->name('calendars.reservations');
         });
     });
 
@@ -488,6 +489,8 @@ Route::middleware('auth')->prefix('/admin')->group(function () {
 
     // Restaurant module (tables, kitchen stations, reservations)
     Route::prefix('restaurant-tables')->group(function () {
+        Route::get('/floorplan', [\App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class, 'floorplan'])->name('restaurant-tables.floorplan');
+        Route::get('/floorplan-data', [\App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class, 'floorplanData'])->name('restaurant-tables.floorplan-data');
         Route::get('/table', [\App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class, 'table'])->name('restaurant-tables.table');
         Route::get('/select', [\App\Http\Controllers\Admin\Restaurant\RestaurantTableController::class, 'select'])->name('restaurant-tables.select');
     });

@@ -53,6 +53,25 @@ class Sale extends Model
     /** Gift certificate / gift card redemption. */
     public const PAYMENT_GIFT_CERT = 7;
 
+    /** Multi-tender sale — the per-tender split lives in sale_payments. */
+    public const PAYMENT_MULTI = 8;
+
+    /**
+     * Tender types accepted inside a multi-tender payment. Credit and
+     * cheque are excluded: both drive single-tender ledger workflows
+     * (credit_balance charge, cheque clearing FSM) that don't split
+     * across one receipt.
+     *
+     * @var array<int, int>
+     */
+    public const MULTI_TENDER_TYPES = [
+        self::PAYMENT_CASH,
+        self::PAYMENT_EWALLET,
+        self::PAYMENT_BANK_TRANSFER,
+        self::PAYMENT_CARD,
+        self::PAYMENT_GIFT_CERT,
+    ];
+
     /** Cheque written, not yet cleared. No bank impact yet. */
     public const CHEQUE_PENDING = 'pending';
 
@@ -205,5 +224,14 @@ class Sale extends Model
     public function paymentProofs(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(SalePaymentProof::class);
+    }
+
+    /**
+     * Per-tender breakdown of a multi-tender sale (payment_type =
+     * PAYMENT_MULTI). Empty for single-tender sales.
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(SalePayment::class, 'sales_id', 'id');
     }
 }

@@ -9,6 +9,7 @@ use App\Models\CustomerRelations\CustomerCreditTransaction;
 use App\Models\Ecommerce\EcommerceOrder;
 use App\Models\Pos\Sale;
 use App\Models\Pos\SaleLine;
+use App\Models\Pos\SalePayment;
 use App\Services\Data\SaleCreationData;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,14 @@ class SaleCreationService
 
             SaleLine::insert($saleLines);
 
+            if ($data->tenderRows !== []) {
+                SalePayment::insert(array_map(static function (array $tender) use ($sale) {
+                    $tender['sales_id'] = $sale->id;
+
+                    return $tender;
+                }, $data->tenderRows));
+            }
+
             if ($data->customer) {
                 if ($data->pointsUsed == 0) {
                     $data->customer->update([
@@ -63,8 +72,16 @@ class SaleCreationService
         // E-wallet and bank transfer both deposit immediately. Cheque
         // (PAYMENT_CHEQUE) stays pending until admin marks it cleared —
         // no BankTransaction is written here, and the bank's balance
-        // doesn't move until the cheque actually clears.
-        if (in_array($sale->payment_type, [Sale::PAYMENT_EWALLET, Sale::PAYMENT_BANK_TRANSFER], true)) {
+        // doesn't move until the cheque actually clears. A multi-tender
+        // sale deposits each e-wallet/bank tender separately at its
+        // applied amount.
+        if ($sale->payment_type == Sale::PAYMENT_MULTI) {
+            foreach ($data->tenderRows as $tender) {
+                if (in_array((int) $tender['payment_type'], [Sale::PAYMENT_EWALLET, Sale::PAYMENT_BANK_TRANSFER], true)) {
+                    ProcessEWalletPaymentJob::dispatch($sale, (float) $tender['amount'], $tender['bank_id'] ?? null);
+                }
+            }
+        } elseif (in_array($sale->payment_type, [Sale::PAYMENT_EWALLET, Sale::PAYMENT_BANK_TRANSFER], true)) {
             ProcessEWalletPaymentJob::dispatch($sale);
         }
 

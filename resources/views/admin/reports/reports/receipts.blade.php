@@ -155,7 +155,12 @@
                             var paymentTypes = {
                                 1: {title: 'Cash',     class: 'badge badge-light-success'},
                                 2: {title: 'E-Wallet', class: 'badge badge-light-info'},
-                                3: {title: 'Credit',   class: 'badge badge-light-warning'}
+                                3: {title: 'Credit',   class: 'badge badge-light-warning'},
+                                4: {title: 'Bank Transfer', class: 'badge badge-light-info'},
+                                5: {title: 'Cheque',   class: 'badge badge-light-warning'},
+                                6: {title: 'Card',     class: 'badge badge-light-info'},
+                                7: {title: 'Gift Cert', class: 'badge badge-light-success'},
+                                8: {title: 'Split',    class: 'badge badge-light-primary'}
                             };
                             var typeBadge = `<span class="${types[full.type].class}">${types[full.type].title}</span>`;
                             var paymentBadge = '';

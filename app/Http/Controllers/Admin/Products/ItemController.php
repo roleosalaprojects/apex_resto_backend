@@ -62,6 +62,8 @@ class /**/ ItemController extends Controller
     {
         if (auth()->user()->role->itms_create) {
             $item = new Item;
+            $stations = \App\Models\Restaurant\KitchenStation::where('user_id', auth()->user()->user_id)
+                ->where('status', true)->orderBy('name')->get(['id', 'name']);
             $locations = Store::with([
                 'stocks' => function ($q) {
                     $q->where('item_id', null);
@@ -69,7 +71,7 @@ class /**/ ItemController extends Controller
             ])->where('status', true)->get();
             $selected_supplier = '';
 
-            return view('admin.products.items.create', compact('item', 'locations'));
+            return view('admin.products.items.create', compact('item', 'stations', 'locations'));
         }
 
         return redirect('/home')->with('error', "You don't have rights to access this. Please contact administrator if there are any concerns.");
@@ -153,6 +155,8 @@ class /**/ ItemController extends Controller
             'creditable_to_points' => $request->creditable_to_points == 'on',
             'uom_label' => $request->uom_label,
             'cost_override' => $request->cost_override == 'on',
+            'show_in_pos' => $request->show_in_pos == 'on',
+            'kitchen_station_id' => $request->kitchen_station_id ?: null,
         ]);
 
         if (is_array($request->components)) {
@@ -254,6 +258,8 @@ class /**/ ItemController extends Controller
     public function edit(Item $item)
     {
         if (auth()->user()->role->itms_update) {
+            $stations = \App\Models\Restaurant\KitchenStation::where('user_id', auth()->user()->user_id)
+                ->where('status', true)->orderBy('name')->get(['id', 'name']);
             $locations = Store::with([
                 'stocks' => function ($q) use ($item) {
                     $q->where('item_id', $item->id);
@@ -262,7 +268,7 @@ class /**/ ItemController extends Controller
 
             // return $item;
 
-            return view('admin.products.items.edit', compact('item', 'locations'));
+            return view('admin.products.items.edit', compact('item', 'stations', 'locations'));
         }
 
         return redirect('/home')->with('error', "You don't have rights to access this. Please contact administrator if there are any concerns.");
@@ -370,6 +376,8 @@ class /**/ ItemController extends Controller
             'creditable_to_points' => $request->creditable_to_points == 'on',
             'uom_label' => $request->uom_label,
             'cost_override' => $request->cost_override == 'on',
+            'show_in_pos' => $request->show_in_pos == 'on',
+            'kitchen_station_id' => $request->kitchen_station_id ?: null,
         ]);
 
         if ($request->has('components')) {

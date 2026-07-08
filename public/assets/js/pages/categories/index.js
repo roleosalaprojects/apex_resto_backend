@@ -103,6 +103,7 @@ $(document).ready(function() {
         formData.append('name', $('input[name=name]').val());
         formData.append('description', $('textarea[name=description]').val() || '');
         formData.append('icon', $('input[name=icon]').val() || '');
+        formData.append('kitchen_station_id', $('select[name=kitchen_station_id]').val() || '');
 
         let imageFile = $('input[name=image]')[0].files[0];
         if (imageFile) {
@@ -176,6 +177,7 @@ $(document).ready(function() {
                     $('input[name=name]').val(response.name);
                     $('textarea[name=description]').val(response.description || '');
                     $('input[name=icon]').val(response.icon || '');
+                    $('select[name=kitchen_station_id]').val(response.kitchen_station_id || '');
                     if (response.image) {
                         $('#categoryImagePreview').css('background-image', 'url(' + response.image + ')');
                         $('input[name=old_image]').val(response.image);

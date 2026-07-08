@@ -27,7 +27,7 @@ class KdsService
         $query = OrderLine::query()
             ->where('kitchen_station_id', $stationId)
             ->whereIn('line_status', [OrderLine::LINE_QUEUED, OrderLine::LINE_PREPARING, OrderLine::LINE_READY])
-            ->with(['item:id,name', 'order:id,reference,table_id,order_type'])
+            ->with(['item:id,name', 'order:id,reference,table_id,order_type', 'order.table:id,name', 'order.tables:id,name'])
             ->orderBy('fired_at');
 
         if ($since !== null) {

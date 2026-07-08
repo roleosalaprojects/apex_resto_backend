@@ -10,9 +10,11 @@ use App\Models\Pos\Sale;
 use App\Models\Settings\Pos;
 use App\Models\Settings\Store;
 use App\Models\User;
+use App\Services\DiscountAllocationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use RuntimeException;
 
 /**
  * Read-only payload for SaleCreationService.
@@ -30,6 +32,7 @@ final readonly class SaleCreationData
     /**
      * @param  array<string, mixed>  $saleAttributes  payload for Sale::create
      * @param  array<int, array<string, mixed>>  $saleLineRows  payload for SaleLine::insert (sales_id appended by the service)
+     * @param  array<int, array<string, mixed>>  $tenderRows  payload for SalePayment::insert on a multi-tender sale (sales_id appended by the service); empty for single-tender
      */
     public function __construct(
         public array $saleAttributes,
@@ -37,6 +40,7 @@ final readonly class SaleCreationData
         public ?Customer $customer,
         public float $earnedPoints,
         public float $pointsUsed,
+        public array $tenderRows = [],
     ) {}
 
     /**
@@ -323,23 +327,37 @@ final readonly class SaleCreationData
     /**
      * Build from a restaurant Order being settled at the cashier. Mirrors
      * fromPosRequest's counter/SON conventions so settled dine-in sales
-     * share the official SI series. Only non-voided lines settle.
+     * share the official SI series.
      *
-     * VAT split is kept simple here (vatable lines → vatable+vat, others →
-     * vat_exempt); BIR Annex F group-discount/VAT refinement lands in the
-     * next phase via DiscountAllocationService.
+     * The caller passes the exact lines to bill on this receipt. For a full
+     * settlement that's every unsettled, non-voided line; for a split bill
+     * it's the selected subset — each subset becomes its own official SI.
      *
-     * @param  array<string, mixed>  $payment  payment_type/cash/change/reference/bank fields
+     * VAT split is per line (vatable lines → vatable+vat, others →
+     * vat_exempt). Declaring pax + sc_count/pwd_count in the payment
+     * payload computes the RMC 38-2012 SC/PWD group discount server-side
+     * for this receipt; without a declaration no discount applies.
+     *
+     * Receipt headcounts (pax/sc_count/pwd_count) come from the payload
+     * when given; otherwise a receipt that bills the whole order inherits
+     * the order header, while a partial (split/seat) receipt carries none —
+     * copying the header onto every split receipt would overstate the BIR
+     * SC/PWD counts.
+     *
+     * @param  iterable<int, OrderLine>  $lines  lines to bill on this receipt (item relation preloaded)
+     * @param  array<string, mixed>  $payment  payment_type/cash/payments/pax/sc-pwd/reference/bank fields
+     * @param  bool  $coversWholeOrder  true when this receipt bills every non-voided line of the order
      */
     public static function fromRestaurantOrder(
         Order $order,
         Pos $pos,
         int $counter,
         int|string $sonType,
+        iterable $lines,
         array $payment,
+        bool $coversWholeOrder = true,
     ): self {
         $now = Carbon::now();
-        $order->loadMissing('lines.item:id,cost,creditable_to_points,vatable');
 
         $saleLineRows = [];
         $total = 0;
@@ -349,11 +367,7 @@ final readonly class SaleCreationData
         $exemptTotal = 0;
         $creditableTotal = 0;
 
-        $settleLines = $order->lines->reject(
-            fn (OrderLine $line) => (int) $line->line_status === OrderLine::LINE_VOIDED
-        );
-
-        foreach ($settleLines as $line) {
+        foreach ($lines as $line) {
             $qty = (float) $line->qty;
             $price = (float) $line->price;
             $cost = (float) $line->cost;
@@ -410,26 +424,83 @@ final readonly class SaleCreationData
             ? $creditableTotal * (float) $customer->points
             : 0;
 
-        $cash = (float) ($payment['cash'] ?? $total);
+        $pax = $payment['pax'] ?? ($coversWholeOrder ? $order->pax : null);
+        $scCount = $payment['sc_count'] ?? ($coversWholeOrder ? $order->sc_count : null);
+        $pwdCount = $payment['pwd_count'] ?? ($coversWholeOrder ? $order->pwd_count : null);
+
+        $scDiscount = 0.0;
+        $pwdDiscount = 0.0;
+        $vatSpecialDiscounts = 0.0;
+        $specialDiscountType = 0;
+        $amountDue = $total;
+
+        $declaredPax = (int) ($payment['pax'] ?? 0);
+        $declaredSc = (int) ($payment['sc_count'] ?? 0);
+        $declaredBeneficiaries = $declaredSc + (int) ($payment['pwd_count'] ?? 0);
+
+        if ($declaredBeneficiaries > 0) {
+            if ($declaredPax < 1) {
+                throw new RuntimeException('pax is required when declaring SC/PWD beneficiaries.');
+            }
+            if ($declaredBeneficiaries > $declaredPax) {
+                throw new RuntimeException('SC/PWD beneficiary count cannot exceed pax.');
+            }
+
+            $allocation = app(DiscountAllocationService::class)
+                ->allocateGroupDiscount(round($total, 2), $declaredPax, $declaredBeneficiaries);
+
+            // The beneficiaries' share leaves the VAT base (RMC 38-2012):
+            // scale the receipt's VAT splits by the non-beneficiary fraction
+            // and land the share, net of the VAT removed, in vat_exempt.
+            $remainingFraction = 1 - ($declaredBeneficiaries / $declaredPax);
+            $vatableTotal *= $remainingFraction;
+            $vatTotal *= $remainingFraction;
+            $exemptTotal = $exemptTotal * $remainingFraction + $allocation['vat_exempt_sales'];
+
+            $scDiscount = $declaredSc > 0
+                ? round($allocation['discount_amount'] * $declaredSc / $declaredBeneficiaries, 2)
+                : 0.0;
+            $pwdDiscount = round($allocation['discount_amount'] - $scDiscount, 2);
+            $vatSpecialDiscounts = $allocation['vat_amount_removed'];
+            $specialDiscountType = $declaredSc > 0 ? 1 : 2;
+            $amountDue = $allocation['net_due'];
+        }
+
+        $paymentType = (int) ($payment['payment_type'] ?? Sale::PAYMENT_CASH);
+        $referenceNumber = $payment['reference_number'] ?? null;
+        $bankAmount = $payment['bank_amount'] ?? null;
+        $bankId = $payment['bank_id'] ?? null;
+        $cash = (float) ($payment['cash'] ?? $amountDue);
+        $change = max(0, $cash - $amountDue);
+        $tenderRows = [];
+
+        if (! empty($payment['payments']) && is_array($payment['payments'])) {
+            [$tenderRows, $cash, $change] = self::resolveTenders($payment['payments'], round($amountDue, 2), $now);
+            $paymentType = Sale::PAYMENT_MULTI;
+            // Per-tender reference/bank data lives on the sale_payments rows.
+            $referenceNumber = null;
+            $bankAmount = null;
+            $bankId = null;
+        }
 
         $saleAttributes = [
             'counter' => $counter,
             'son' => $sonType.'-'.$counter.'-'.$pos->id,
-            'payment_type' => (int) ($payment['payment_type'] ?? Sale::PAYMENT_CASH),
-            'reference_number' => $payment['reference_number'] ?? null,
-            'bank_amount' => $payment['bank_amount'] ?? null,
-            'bank_id' => $payment['bank_id'] ?? null,
-            'total' => $total,
+            'payment_type' => $paymentType,
+            'reference_number' => $referenceNumber,
+            'bank_amount' => $bankAmount,
+            'bank_id' => $bankId,
+            'total' => $amountDue,
             'cash' => $cash,
-            'change' => max(0, $cash - $total),
+            'change' => $change,
             'header' => $pos->store->header ?? null,
             'footer' => $pos->store->footer ?? null,
             'type' => false,
             'order_type' => (int) ($order->order_type ?? Order::TYPE_DINE_IN),
             'table_id' => $order->table_id,
-            'pax' => $order->pax,
-            'sc_count' => $order->sc_count,
-            'pwd_count' => $order->pwd_count,
+            'pax' => $pax,
+            'sc_count' => $scCount,
+            'pwd_count' => $pwdCount,
             'sales_by' => Auth::guard('api')->id() ?? $order->waiter_id ?? $order->user_id,
             'pos_id' => $pos->id,
             'store_id' => $pos->store_id,
@@ -447,15 +518,15 @@ final readonly class SaleCreationData
             'approved_by' => null,
             'sale_id' => 0,
             'sale_type' => false,
-            'sc_discount' => 0,
-            'pwd_discount' => 0,
+            'sc_discount' => $scDiscount,
+            'pwd_discount' => $pwdDiscount,
             'sp_discount' => 0,
             'naac_discount' => 0,
-            'vat_special_discounts' => 0,
-            'special_discount_type' => 0,
-            'special_discount_name' => null,
-            'special_discount_id' => null,
-            'special_discount_tin' => null,
+            'vat_special_discounts' => $vatSpecialDiscounts,
+            'special_discount_type' => $specialDiscountType,
+            'special_discount_name' => $payment['special_discount_name'] ?? null,
+            'special_discount_id' => $payment['special_discount_id'] ?? null,
+            'special_discount_tin' => $payment['special_discount_tin'] ?? null,
             'customer_id' => $payment['customer_id'] ?? null,
             'acquired_points' => $earnedPoints,
             'points_used' => 0,
@@ -471,6 +542,85 @@ final readonly class SaleCreationData
             customer: $customer,
             earnedPoints: (float) $earnedPoints,
             pointsUsed: 0.0,
+            tenderRows: $tenderRows,
         );
+    }
+
+    /**
+     * Validate a multi-tender payment set against the receipt total and
+     * shape the sale_payments rows. Non-cash tenders apply at face value
+     * and may not exceed the total — change is only ever given from cash —
+     * so the rows' APPLIED amounts always sum exactly to the sale total
+     * (all cash tenders fold into one row net of change). Mismatches beyond
+     * ±0.01 are rejected, mirroring the DiscountAllocationService tolerance.
+     *
+     * @param  array<int, array<string, mixed>>  $payments  [{payment_type, amount, reference_number?, bank_id?}]
+     * @return array{0: array<int, array<string, mixed>>, 1: float, 2: float} [tender rows, cash tendered, change]
+     */
+    private static function resolveTenders(array $payments, float $total, Carbon $now): array
+    {
+        if (count($payments) < 2) {
+            throw new RuntimeException('Multi-tender payment needs at least two tenders; use payment_type for a single tender.');
+        }
+
+        $cashTendered = 0.0;
+        $nonCashTotal = 0.0;
+        $rows = [];
+
+        foreach ($payments as $tender) {
+            $type = (int) ($tender['payment_type'] ?? 0);
+            $amount = round((float) ($tender['amount'] ?? 0), 2);
+
+            if (! in_array($type, Sale::MULTI_TENDER_TYPES, true)) {
+                throw new RuntimeException('Tender type '.$type.' cannot be part of a multi-tender payment.');
+            }
+            if ($amount <= 0) {
+                throw new RuntimeException('Every tender amount must be greater than zero.');
+            }
+
+            if ($type === Sale::PAYMENT_CASH) {
+                $cashTendered += $amount;
+
+                continue;
+            }
+
+            $nonCashTotal += $amount;
+            $rows[] = [
+                'payment_type' => $type,
+                'amount' => $amount,
+                'reference_number' => $tender['reference_number'] ?? null,
+                'bank_id' => $tender['bank_id'] ?? null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        $nonCashTotal = round($nonCashTotal, 2);
+
+        if ($nonCashTotal - $total > 0.01) {
+            throw new RuntimeException('Non-cash tenders exceed the amount due — change can only be given from cash.');
+        }
+        if ($total - ($cashTendered + $nonCashTotal) > 0.01) {
+            throw new RuntimeException('Tendered amounts do not cover the amount due.');
+        }
+
+        $change = round(max(0.0, $cashTendered + $nonCashTotal - $total), 2);
+        $appliedCash = round($total - $nonCashTotal, 2);
+
+        if ($cashTendered > 0 && $appliedCash > 0) {
+            $rows[] = [
+                'payment_type' => Sale::PAYMENT_CASH,
+                'amount' => $appliedCash,
+                'reference_number' => null,
+                'bank_id' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        } elseif ($rows !== []) {
+            $lastIndex = array_key_last($rows);
+            $rows[$lastIndex]['amount'] = round($rows[$lastIndex]['amount'] + ($total - $nonCashTotal), 2);
+        }
+
+        return [$rows, round($cashTendered, 2), $change];
     }
 }

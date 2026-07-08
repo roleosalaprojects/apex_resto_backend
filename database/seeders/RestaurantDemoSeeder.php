@@ -102,6 +102,9 @@ class RestaurantDemoSeeder extends Seeder
                 'price' => 0,
                 'uom_label' => $uom,
                 'status' => true,
+                // Stock-only: ingredients live in recipes and inventory,
+                // never on the waiter/POS menu.
+                'show_in_pos' => false,
             ]);
             ItemStore::factory()->create([
                 'item_id' => $item->id,

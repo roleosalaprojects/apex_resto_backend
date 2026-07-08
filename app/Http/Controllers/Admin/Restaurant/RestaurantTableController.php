@@ -25,6 +25,73 @@ class RestaurantTableController extends Controller
         return view('admin.restaurant.tables.index', compact('access'));
     }
 
+    /**
+     * Live floor map: tables grouped by area with their open orders,
+     * refreshed by polling floorplanData().
+     */
+    public function floorplan()
+    {
+        $access = Role::find(auth()->user()->role_id);
+        if (! $access->rstrnt) {
+            return $this->denied();
+        }
+
+        return view('admin.restaurant.floorplan.index', compact('access'));
+    }
+
+    public function floorplanData()
+    {
+        $userId = auth()->user()->user_id;
+
+        // Joined-table aware: every table of a joined party reports the
+        // same open order (pivot first, primary table_id fallback).
+        $openOrders = \App\Models\Pos\Order::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('order_type')
+            ->whereNull('sales_id')
+            ->whereNotIn('status', [
+                \App\Models\Pos\Order::STATUS_CANCELLED,
+                \App\Models\Pos\Order::STATUS_COMPLETED,
+            ])
+            ->whereNotNull('table_id')
+            ->with('tables:id')
+            ->get(['id', 'table_id', 'reference', 'pax', 'amount', 'status', 'created_at']);
+
+        $orderByTable = [];
+        foreach ($openOrders as $order) {
+            $tableIds = $order->tables->pluck('id')->all() ?: [$order->table_id];
+            foreach ($tableIds as $tableId) {
+                $orderByTable[$tableId] = $order;
+            }
+        }
+
+        $tables = RestaurantTable::query()
+            ->where('user_id', $userId)
+            ->orderBy('area')
+            ->orderBy('name')
+            ->get()
+            ->map(function (RestaurantTable $table) use ($orderByTable) {
+                $open = $orderByTable[$table->id] ?? null;
+
+                return [
+                    'id' => $table->id,
+                    'name' => $table->name,
+                    'area' => $table->area ?: 'Main',
+                    'seats' => $table->seats,
+                    'status' => (int) $table->status,
+                    'edit_url' => route('restaurant-tables.edit', $table),
+                    'open_order' => $open ? [
+                        'reference' => $open->reference,
+                        'pax' => $open->pax,
+                        'amount' => (float) $open->amount,
+                        'opened_at' => optional($open->created_at)->toIso8601String(),
+                    ] : null,
+                ];
+            });
+
+        return response()->json(['tables' => $tables]);
+    }
+
     public function create()
     {
         if (! auth()->user()->role->rstrnt_create) {

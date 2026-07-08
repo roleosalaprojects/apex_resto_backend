@@ -10,6 +10,7 @@ use App\Models\Restaurant\RestaurantTable;
 use App\Models\Settings\Pos;
 use App\Services\Data\SaleCreationData;
 use App\Services\SaleCreationService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -31,13 +32,30 @@ class RestaurantOrderService
     /**
      * Open a new order and fire its first round of lines to the kitchen.
      *
-     * @param  array<string, mixed>  $attributes  order header (order_type, table_id, pax, waiter_id, ...)
+     * Large parties can span several physical tables: pass `table_ids`
+     * with every table to seat. `table_id` (or the first of `table_ids`)
+     * stays the primary table on the order header.
+     *
+     * @param  array<string, mixed>  $attributes  order header (order_type, table_id, table_ids?, pax, waiter_id, ...)
      * @param  array<int, array<string, mixed>>  $lines  [{item_id, qty, notes?, unit_id?, unit_qty?}]
      */
     public function openOrder(array $attributes, array $lines, int $userId, ?int $posId = null): Order
     {
         return DB::transaction(function () use ($attributes, $lines, $userId, $posId) {
             $orderType = (int) ($attributes['order_type'] ?? Order::TYPE_DINE_IN);
+
+            $tableIds = collect($attributes['table_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values();
+            $primaryTableId = (int) ($attributes['table_id'] ?? 0) ?: $tableIds->first();
+            if ($primaryTableId) {
+                $tableIds = $tableIds->prepend($primaryTableId)->unique()->values();
+            }
+            if ($tableIds->count() > 1) {
+                $this->assertTablesSeatable($tableIds->all());
+            }
 
             $order = Order::create([
                 'reference' => $attributes['reference'] ?? strtoupper(Str::random(8)),
@@ -47,7 +65,7 @@ class RestaurantOrderService
                 'user_id' => $userId,
                 'status' => Order::STATUS_PREPARING,
                 'order_type' => $orderType,
-                'table_id' => $attributes['table_id'] ?? null,
+                'table_id' => $primaryTableId ?: null,
                 'pax' => $attributes['pax'] ?? null,
                 'sc_count' => $attributes['sc_count'] ?? null,
                 'pwd_count' => $attributes['pwd_count'] ?? null,
@@ -62,13 +80,110 @@ class RestaurantOrderService
 
             $this->fireLines($order, $lines, 1);
 
-            if ($orderType === Order::TYPE_DINE_IN && $order->table_id) {
-                RestaurantTable::where('id', $order->table_id)
+            if ($orderType === Order::TYPE_DINE_IN && $tableIds->isNotEmpty()) {
+                $order->tables()->sync($tableIds->all());
+                RestaurantTable::whereIn('id', $tableIds->all())
                     ->update(['status' => RestaurantTable::STATUS_OCCUPIED]);
             }
 
-            return $order->fresh('lines');
+            return $order->fresh(['lines', 'tables']);
         });
+    }
+
+    /**
+     * Join more tables onto an open dine-in order (the party grew).
+     *
+     * @param  array<int, int>  $tableIds
+     */
+    public function joinTables(Order $order, array $tableIds): Order
+    {
+        $this->assertOpen($order);
+
+        if ((int) $order->order_type !== Order::TYPE_DINE_IN || ! $order->table_id) {
+            throw new RuntimeException('Only seated dine-in orders can join tables.');
+        }
+
+        $ids = collect($tableIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->reject(fn ($id) => $order->tables()->where('restaurant_tables.id', $id)->exists())
+            ->values();
+
+        if ($ids->isEmpty()) {
+            throw new RuntimeException('No new tables to join.');
+        }
+
+        return DB::transaction(function () use ($order, $ids) {
+            $this->assertTablesSeatable($ids->all());
+
+            $order->tables()->syncWithoutDetaching($ids->all());
+            RestaurantTable::whereIn('id', $ids->all())
+                ->update(['status' => RestaurantTable::STATUS_OCCUPIED]);
+
+            return $order->fresh(['lines', 'tables']);
+        });
+    }
+
+    /**
+     * Release one joined table back to the floor (the party shrank).
+     * The primary table can only leave via transferTable.
+     */
+    public function releaseTable(Order $order, RestaurantTable $table): Order
+    {
+        $this->assertOpen($order);
+
+        if ((int) $table->id === (int) $order->table_id) {
+            throw new RuntimeException('The primary table cannot be released — transfer the order instead.');
+        }
+        if (! $order->tables()->where('restaurant_tables.id', $table->id)->exists()) {
+            throw new RuntimeException('That table is not joined to this order.');
+        }
+
+        return DB::transaction(function () use ($order, $table) {
+            $order->tables()->detach($table->id);
+            $table->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+
+            return $order->fresh(['lines', 'tables']);
+        });
+    }
+
+    /**
+     * Reject joining any table that is already occupied or inactive.
+     * (Reserved tables can be seated — the host is honouring the booking.)
+     *
+     * @param  array<int, int>  $tableIds
+     */
+    private function assertTablesSeatable(array $tableIds): void
+    {
+        $blocked = RestaurantTable::whereIn('id', $tableIds)
+            ->whereIn('status', [
+                RestaurantTable::STATUS_OCCUPIED,
+                RestaurantTable::STATUS_INACTIVE,
+            ])
+            ->pluck('name');
+
+        if ($blocked->isNotEmpty()) {
+            throw new RuntimeException(
+                'Cannot seat on '.$blocked->join(', ').' — already occupied or inactive.',
+            );
+        }
+    }
+
+    /**
+     * Free every table the order occupies (joined set, falling back to
+     * the primary for orders created before table joining existed).
+     */
+    private function freeTables(Order $order): void
+    {
+        $ids = $order->tables()->pluck('restaurant_tables.id');
+        if ($ids->isEmpty() && $order->table_id) {
+            $ids = collect([$order->table_id]);
+        }
+        if ($ids->isNotEmpty()) {
+            RestaurantTable::whereIn('id', $ids->all())
+                ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+        }
     }
 
     /**
@@ -100,6 +215,13 @@ class RestaurantOrderService
 
             $order->update(['table_id' => $newTableId]);
 
+            // Swap the primary in the joined set; other joined tables
+            // stay with the party.
+            if ($oldTableId) {
+                $order->tables()->detach($oldTableId);
+            }
+            $order->tables()->syncWithoutDetaching([$newTableId]);
+
             if ($oldTableId && $oldTableId !== $newTableId) {
                 RestaurantTable::where('id', $oldTableId)
                     ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
@@ -107,8 +229,23 @@ class RestaurantOrderService
             RestaurantTable::where('id', $newTableId)
                 ->update(['status' => RestaurantTable::STATUS_OCCUPIED]);
 
-            return $order->fresh('lines');
+            return $order->fresh(['lines', 'tables']);
         });
+    }
+
+    /**
+     * Assign (or clear) a line's seat before it is settled. Once a line is
+     * billed its seat is locked.
+     */
+    public function assignSeat(OrderLine $line, ?int $seat): OrderLine
+    {
+        if ($line->sales_id) {
+            throw new RuntimeException('Cannot reassign the seat of an already-settled line.');
+        }
+
+        $line->update(['seat' => $seat]);
+
+        return $line->refresh();
     }
 
     /**
@@ -130,8 +267,8 @@ class RestaurantOrderService
     }
 
     /**
-     * Settle the order: convert non-voided lines into a Sale, link the
-     * order to it, mark complete, and free the table.
+     * Settle the whole order: bill every unsettled, non-voided line onto one
+     * Sale. After a split bill this pays off whatever remains.
      *
      * @param  array<string, mixed>  $payment
      */
@@ -140,26 +277,111 @@ class RestaurantOrderService
         $this->assertOpen($order);
 
         $pos = Pos::with('store')->findOrFail($order->pos_id);
+        $lines = $this->unsettledLines($order)->get();
 
-        return DB::transaction(function () use ($order, $payment, $pos) {
+        if ($lines->isEmpty()) {
+            throw new RuntimeException('Order has no unsettled lines to settle.');
+        }
+
+        return $this->settleLines($order, $lines, $payment, $pos);
+    }
+
+    /**
+     * Split bill: settle a chosen subset of the order's lines onto its own
+     * Sale (its own official SI), leaving the rest open. The order completes
+     * and the table frees only once every non-voided line is settled.
+     *
+     * @param  array<int, int>  $lineIds
+     * @param  array<string, mixed>  $payment
+     */
+    public function splitSettle(Order $order, array $lineIds, array $payment, int $userId): Sale
+    {
+        $this->assertOpen($order);
+
+        $lineIds = array_values(array_unique(array_map('intval', $lineIds)));
+
+        $pos = Pos::with('store')->findOrFail($order->pos_id);
+        $lines = $this->unsettledLines($order)->whereIn('id', $lineIds)->get();
+
+        if ($lines->count() !== count($lineIds)) {
+            throw new RuntimeException('One or more selected lines are invalid, already settled, or voided.');
+        }
+
+        return $this->settleLines($order, $lines, $payment, $pos);
+    }
+
+    /**
+     * Bill-by-seat: settle every unsettled, non-voided line belonging to the
+     * given seat(s) onto one Sale. Like splitSettle but selecting by seat
+     * rather than explicit line ids.
+     *
+     * @param  array<int, int>  $seats
+     * @param  array<string, mixed>  $payment
+     */
+    public function settleSeats(Order $order, array $seats, array $payment, int $userId): Sale
+    {
+        $this->assertOpen($order);
+
+        $seats = array_values(array_unique(array_map('intval', $seats)));
+
+        $pos = Pos::with('store')->findOrFail($order->pos_id);
+        $lines = $this->unsettledLines($order)->whereIn('seat', $seats)->get();
+
+        if ($lines->isEmpty()) {
+            throw new RuntimeException('No unsettled lines for the selected seat(s).');
+        }
+
+        return $this->settleLines($order, $lines, $payment, $pos);
+    }
+
+    /**
+     * Bill the given lines onto a fresh Sale, stamp each line with that
+     * sale, and — if nothing unsettled remains — complete the order and
+     * free its table.
+     *
+     * @param  Collection<int, OrderLine>  $lines
+     * @param  array<string, mixed>  $payment
+     */
+    private function settleLines(Order $order, Collection $lines, array $payment, Pos $pos): Sale
+    {
+        return DB::transaction(function () use ($order, $lines, $payment, $pos) {
             [$counter, $sonType] = $this->computeSaleCounter($pos);
 
-            $data = SaleCreationData::fromRestaurantOrder($order, $pos, $counter, $sonType, $payment);
+            $lines->loadMissing('item:id,cost,creditable_to_points,vatable');
+
+            $coversWholeOrder = $order->lines()->whereNotNull('sales_id')->doesntExist()
+                && $lines->count() === $this->unsettledLines($order)->count();
+
+            $data = SaleCreationData::fromRestaurantOrder($order, $pos, $counter, $sonType, $lines, $payment, $coversWholeOrder);
             $sale = $this->saleCreation->create($data);
 
-            $order->update([
-                'sales_id' => $sale->id,
-                'status' => Order::STATUS_COMPLETED,
-                'completed_at' => now(),
-            ]);
+            OrderLine::whereIn('id', $lines->pluck('id'))->update(['sales_id' => $sale->id]);
 
-            if ($order->table_id) {
-                RestaurantTable::where('id', $order->table_id)
-                    ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
+            if ($this->unsettledLines($order)->doesntExist()) {
+                $order->update([
+                    'sales_id' => $sale->id,
+                    'status' => Order::STATUS_COMPLETED,
+                    'completed_at' => now(),
+                ]);
+
+                $this->freeTables($order);
             }
 
             return $sale;
         });
+    }
+
+    /**
+     * Query for the order's lines that are neither voided nor already
+     * settled — i.e. what's still owed.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    private function unsettledLines(Order $order)
+    {
+        return $order->lines()
+            ->whereNull('sales_id')
+            ->where('line_status', '!=', OrderLine::LINE_VOIDED);
     }
 
     /**
@@ -180,10 +402,7 @@ class RestaurantOrderService
                 'cancelled_at' => now(),
             ]);
 
-            if ($order->table_id) {
-                RestaurantTable::where('id', $order->table_id)
-                    ->update(['status' => RestaurantTable::STATUS_AVAILABLE]);
-            }
+            $this->freeTables($order);
 
             return $order->fresh('lines');
         });
@@ -218,6 +437,7 @@ class RestaurantOrderService
                 'unit_id' => $line['unit_id'] ?? null,
                 'order_id' => $order->id,
                 'notes' => $line['notes'] ?? null,
+                'seat' => $line['seat'] ?? null,
                 'round' => $round,
                 'kitchen_station_id' => $this->routing->resolveStation($item),
                 'line_status' => OrderLine::LINE_QUEUED,

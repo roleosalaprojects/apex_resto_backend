@@ -32,6 +32,7 @@ class StoreRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:1000'],
             'image' => ['nullable', 'file', 'image', 'mimes:jpeg,png,jpg', 'max:2048'],
             'icon' => ['nullable', 'string', 'max:100'],
+            'kitchen_station_id' => ['nullable', 'integer', 'exists:kitchen_stations,id'],
         ];
     }
 

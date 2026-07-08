@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Traits\ApiResponse;
 use App\Models\Pos\Order;
 use App\Models\Pos\OrderLine;
+use App\Models\Pos\Sale;
 use App\Services\Restaurant\RestaurantOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ class RestaurantOrderController extends Controller
             ->whereNotNull('order_type')
             ->whereNull('sales_id')
             ->whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_COMPLETED])
-            ->with(['lines', 'table:id,name,number', 'waiter:id,name'])
+            ->with(['lines', 'table:id,name,number', 'tables:id,name,number', 'waiter:id,name'])
             ->orderByDesc('id')
             ->get();
 
@@ -39,6 +40,8 @@ class RestaurantOrderController extends Controller
         $validated = $request->validate([
             'order_type' => ['required', Rule::in([Order::TYPE_DINE_IN, Order::TYPE_TAKE_OUT, Order::TYPE_DELIVERY])],
             'table_id' => ['nullable', 'integer', 'exists:restaurant_tables,id'],
+            'table_ids' => ['nullable', 'array'],
+            'table_ids.*' => ['integer', 'exists:restaurant_tables,id'],
             'pax' => ['nullable', 'integer', 'min:1'],
             'sc_count' => ['nullable', 'integer', 'min:0'],
             'pwd_count' => ['nullable', 'integer', 'min:0'],
@@ -54,6 +57,7 @@ class RestaurantOrderController extends Controller
             'lines.*.notes' => ['nullable', 'string'],
             'lines.*.unit_id' => ['nullable', 'integer'],
             'lines.*.unit_qty' => ['nullable', 'numeric'],
+            'lines.*.seat' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $user = Auth::guard('api')->user();
@@ -61,19 +65,23 @@ class RestaurantOrderController extends Controller
             'store_id' => $request->input('store_id'),
         ]);
 
-        $order = $this->orders->openOrder(
-            $attributes,
-            $validated['lines'],
-            $user->user_id,
-            $validated['pos_id'] ?? $request->input('pos_id'),
-        );
+        try {
+            $order = $this->orders->openOrder(
+                $attributes,
+                $validated['lines'],
+                $user->user_id,
+                $validated['pos_id'] ?? $request->input('pos_id'),
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
 
-        return $this->created($order->load(['lines', 'table:id,name,number']));
+        return $this->created($order->load(['lines', 'table:id,name,number', 'tables:id,name,number']));
     }
 
     public function show(Order $order): JsonResponse
     {
-        return $this->success($order->load(['lines.item:id,name', 'table:id,name,number', 'waiter:id,name', 'sale:id,son,total']));
+        return $this->success($order->load(['lines.item:id,name', 'table:id,name,number', 'tables:id,name,number', 'waiter:id,name', 'sale:id,son,total']));
     }
 
     public function rounds(Request $request, Order $order): JsonResponse
@@ -85,6 +93,7 @@ class RestaurantOrderController extends Controller
             'lines.*.notes' => ['nullable', 'string'],
             'lines.*.unit_id' => ['nullable', 'integer'],
             'lines.*.unit_qty' => ['nullable', 'numeric'],
+            'lines.*.seat' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $order = $this->orders->addRound($order, $validated['lines']);
@@ -103,6 +112,40 @@ class RestaurantOrderController extends Controller
         return $this->success($order);
     }
 
+    public function joinTables(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'table_ids' => ['required', 'array', 'min:1'],
+            'table_ids.*' => ['integer', 'exists:restaurant_tables,id'],
+        ]);
+
+        try {
+            $order = $this->orders->joinTables($order, $validated['table_ids']);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($order->load('tables:id,name,number'));
+    }
+
+    public function releaseTable(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'table_id' => ['required', 'integer', 'exists:restaurant_tables,id'],
+        ]);
+
+        try {
+            $order = $this->orders->releaseTable(
+                $order,
+                \App\Models\Restaurant\RestaurantTable::findOrFail($validated['table_id']),
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($order->load('tables:id,name,number'));
+    }
+
     public function voidLine(Request $request, Order $order, OrderLine $line): JsonResponse
     {
         abort_unless($line->order_id === $order->id, 404);
@@ -116,23 +159,127 @@ class RestaurantOrderController extends Controller
         return $this->success($line);
     }
 
-    public function settle(Request $request, Order $order): JsonResponse
+    public function assignSeat(Request $request, Order $order, OrderLine $line): JsonResponse
     {
+        abort_unless($line->order_id === $order->id, 404);
+
         $validated = $request->validate([
-            'payment_type' => ['required', 'integer'],
+            'seat' => ['present', 'nullable', 'integer', 'min:1'],
+        ]);
+
+        try {
+            $line = $this->orders->assignSeat($line, $validated['seat']);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($line);
+    }
+
+    /**
+     * Settlement payload rules shared by the settle endpoints. Single-tender
+     * sends payment_type (+ cash/reference/bank fields); multi-tender sends
+     * payments[] (two or more tenders — credit and cheque excluded) instead.
+     * Declaring pax with sc_count/pwd_count computes the RMC 38-2012 SC/PWD
+     * group discount server-side for this receipt.
+     *
+     * @return array<string, mixed>
+     */
+    private function settlementRules(): array
+    {
+        return [
+            'payment_type' => ['required_without:payments', 'integer'],
             'cash' => ['nullable', 'numeric'],
             'customer_id' => ['nullable', 'integer'],
             'reference_number' => ['nullable', 'string'],
             'bank_amount' => ['nullable', 'numeric'],
             'bank_id' => ['nullable', 'integer'],
-        ]);
+            'payments' => ['sometimes', 'array', 'min:2'],
+            'payments.*.payment_type' => ['required', 'integer', Rule::in(Sale::MULTI_TENDER_TYPES)],
+            'payments.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'payments.*.reference_number' => ['nullable', 'string'],
+            'payments.*.bank_id' => ['nullable', 'integer', 'exists:banks,id'],
+            'pax' => ['nullable', 'integer', 'min:1'],
+            'sc_count' => ['nullable', 'integer', 'min:0'],
+            'pwd_count' => ['nullable', 'integer', 'min:0'],
+            'special_discount_name' => ['nullable', 'string'],
+            'special_discount_id' => ['nullable', 'string'],
+            'special_discount_tin' => ['nullable', 'string'],
+        ];
+    }
 
-        $sale = $this->orders->settle($order, $validated, Auth::guard('api')->user()->user_id);
+    public function settleSeat(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate(array_merge([
+            'seats' => ['required', 'array', 'min:1'],
+            'seats.*' => ['integer'],
+        ], $this->settlementRules()));
+
+        try {
+            $sale = $this->orders->settleSeats(
+                $order,
+                $validated['seats'],
+                $validated,
+                Auth::guard('api')->user()->user_id,
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        $order->refresh();
 
         return $this->success([
             'sale_id' => $sale->id,
             'son' => $sale->son,
             'total' => $sale->total,
+            'fully_settled' => $order->sales_id !== null,
+            'order_status' => $order->status,
+        ]);
+    }
+
+    public function settle(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate($this->settlementRules());
+
+        try {
+            $sale = $this->orders->settle($order, $validated, Auth::guard('api')->user()->user_id);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success([
+            'sale_id' => $sale->id,
+            'son' => $sale->son,
+            'total' => $sale->total,
+        ]);
+    }
+
+    public function splitSettle(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate(array_merge([
+            'line_ids' => ['required', 'array', 'min:1'],
+            'line_ids.*' => ['integer'],
+        ], $this->settlementRules()));
+
+        try {
+            $sale = $this->orders->splitSettle(
+                $order,
+                $validated['line_ids'],
+                $validated,
+                Auth::guard('api')->user()->user_id,
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        $order->refresh();
+
+        return $this->success([
+            'sale_id' => $sale->id,
+            'son' => $sale->son,
+            'total' => $sale->total,
+            'fully_settled' => $order->sales_id !== null,
+            'order_status' => $order->status,
         ]);
     }
 

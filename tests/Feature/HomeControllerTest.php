@@ -27,11 +27,14 @@ class HomeControllerTest extends TestCase
         ]);
     }
 
-    public function test_welcome_page_is_accessible(): void
+    public function test_root_redirects_to_the_shop_landing_page(): void
     {
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+        $response->assertStatus(301);
+        $response->assertRedirect('/shop');
+
+        $this->get('/shop')->assertStatus(200);
     }
 
     public function test_home_page_requires_authentication(): void
